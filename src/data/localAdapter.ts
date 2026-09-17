@@ -15,7 +15,7 @@ import type {
   WorkOrderResult,
 } from '@/types'
 import type { ConvertResult, DataAdapter, NewClosing, PaymentResult } from './adapter'
-import { seedDebts, seedPayments, seedProformas, seedTransactions } from './seed'
+import { generarDemoIntermedio } from './demoIntermedio'
 
 /**
  * Adaptador de respaldo: guarda todo en localStorage.
@@ -40,15 +40,19 @@ interface Store {
 }
 
 function seeded(): Store {
+  // Ocho semanas de actividad en vez de cinco asientos de un día: es lo que
+  // hace falta para ver la paginación, los avisos de deuda antigua y el arqueo
+  // entre cierres comportándose como en un negocio real.
+  const demo = generarDemoIntermedio()
   return {
-    transactions: seedTransactions(),
-    workOrders: [],
-    proformas: seedProformas(),
-    debts: seedDebts(),
-    payments: seedPayments(),
-    closings: [],
-    voucherSeq: 6,
-    proformaSeq: 1004,
+    transactions: demo.transactions,
+    workOrders: demo.workOrders,
+    proformas: demo.proformas,
+    debts: demo.debts,
+    payments: demo.payments,
+    closings: demo.closings,
+    voucherSeq: demo.voucherSeq,
+    proformaSeq: demo.proformaSeq,
   }
 }
 

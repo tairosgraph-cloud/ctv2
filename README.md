@@ -102,7 +102,7 @@ comentado al final de `supabase/migrations/0001_init.sql` tiene la versión list
 | `npm run build`     | Chequeo de tipos + bundle de producción en `dist/`    |
 | `npm run preview`   | Sirve el bundle de producción                         |
 | `npm run typecheck` | Solo TypeScript                                       |
-| `npm run smoke`     | Pruebas de la lógica de negocio (255 comprobaciones)   |
+| `npm run smoke`     | Pruebas de la lógica de negocio (276 comprobaciones)   |
 
 ## Estructura
 
@@ -658,6 +658,38 @@ comentario.
   catch-all convertiría los 404 honestos en páginas fantasma con código 200.
 - `engines: node >=18` en `package.json`.
 - CI en `.github/workflows/ci.yml`: tipos, pruebas y build en cada push y PR.
+
+## Datos de demostración
+
+En **modo local** la app arranca con unas ocho semanas de actividad de imprenta
+generadas por [`src/data/demoIntermedio.ts`](src/data/demoIntermedio.ts):
+
+| | |
+| --- | --- |
+| Pedidos | 120 |
+| Asientos | 145 (6 páginas de tabla) |
+| Proformas | 18, en los tres estados |
+| Cuentas | 39, con 3 por pagar a proveedores |
+| Abonos | 17, algunos parciales |
+| Cierres de caja | 7, uno por semana |
+
+Antes eran cinco asientos de un solo día: bastaba para ver que la pantalla
+pinta, no para saber si el sistema aguanta. Con este volumen se ejercitan de
+verdad la paginación, el aviso de deudas antiguas, el arqueo entre cierres y el
+informe de Excel.
+
+Es **determinista**: la misma semilla produce exactamente el mismo negocio, así
+que se puede comparar un antes y un después. `generarDemoIntermedio({ semilla })`
+da otro negocio igual de coherente.
+
+Y respeta las mismas invariantes que las guardas de Postgres —el adelanto nunca
+supera el total, lo abonado nunca supera el saldo, cada cierre cuadra con el
+efectivo de su semana— porque unos datos imposibles enseñarían estados que la
+app no puede producir. Hay 20 comprobaciones que lo verifican.
+
+> **No se cargan en Supabase.** Cuando hay credenciales, la app usa la base real
+> y estos datos no aparecen. Mezclar 120 pedidos inventados con contabilidad de
+> verdad obligaría a distinguirlos uno por uno después.
 
 ## Pendiente / siguientes pasos
 

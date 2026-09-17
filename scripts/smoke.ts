@@ -4,6 +4,7 @@ import { parseAmount } from '@/lib/format'
 import { buildLedgerRows } from '@/lib/ledgerRows'
 import { buildCashArqueo, describeCashWindow, findLastClosing } from '@/lib/cashArqueo'
 import { numerosDePagina } from '@/hooks/usePagination'
+import { generarDemoIntermedio } from '@/data/demoIntermedio'
 import { briefingToSpeech, buildBotMessages, buildDebtBriefing, describirAntiguedad } from '@/lib/debtAlerts'
 import { answerQuestion } from '@/components/gateway/knowledge'
 import type { CashClosing, Debt, Transaction, WorkOrder } from '@/types'
@@ -46,12 +47,20 @@ async function main() {
   check('asistente: reconoce arqueo', answerQuestion('cómo hago el cuadre de caja').includes('arqueo'), true)
 
   // --- flujo de deudas con abonos parciales --------------------------------
-  const debts0 = await localAdapter.listDebts()
-  const d1 = debts0.find((d) => d.party === 'Constructora del Centro')!
-  check('deuda semilla: total', d1.total, 600)
-  check('deuda semilla: abonado', d1.paid, 200)
-  check('deuda semilla: saldo', d1.balance, 400)
-  check('deuda semilla: estado', d1.status, 'Parcial')
+  // La prueba crea su propio escenario en vez de apoyarse en los datos de
+  // demostración: si la demo cambia, la prueba no debe romperse.
+  const d1Base = await localAdapter.createDebt({
+    kind: 'COBRAR',
+    party: 'Fixture Constructora',
+    concept: 'Saldo pendiente por impresión de planos',
+    total: 600,
+  })
+  await localAdapter.payDebt(d1Base.id, 200, 'Efectivo', 'Test')
+  const d1 = (await localAdapter.listDebts()).find((d) => d.id === d1Base.id)!
+  check('deuda: total', d1.total, 600)
+  check('deuda: abonado', d1.paid, 200)
+  check('deuda: saldo', d1.balance, 400)
+  check('deuda: estado parcial', d1.status, 'Parcial')
 
   await localAdapter.payDebt(d1.id, 150, 'Yape/Plin', 'Test')
   const d1b = (await localAdapter.listDebts()).find((d) => d.id === d1.id)!
@@ -417,6 +426,9 @@ async function main() {
   // --- corregir proformas ---------------------------------------------------
   resetLocalStore()
   const pfs = await localAdapter.listProformas()
+  // Relativo al estado inicial: los datos de demostración traen proformas en
+  // varios estados, así que no se puede asumir que todas empiecen vigentes.
+  const vigentesAlEmpezar = pfs.filter((p) => p.status === 'Vigente').length
   const vigente = pfs.find((p) => p.status === 'Vigente')!
 
   const pfEditada = await localAdapter.updateProforma(vigente.id, {
@@ -451,19 +463,25 @@ async function main() {
   check(
     'proforma: la anulada ya no cuenta como vigente',
     (await localAdapter.listProformas()).filter((p) => p.status === 'Vigente').length,
-    pfs.length - 2,
+    vigentesAlEmpezar - 2,
   )
 
   // --- corregir cuentas y deshacer abonos -----------------------------------
-  const cuentas = await localAdapter.listDebts()
-  const manual = cuentas.find((d) => d.party === 'Constructora del Centro')!
-  check('cuenta: la de la semilla es manual', manual.workOrderId, null)
+  const manualBase = await localAdapter.createDebt({
+    kind: 'COBRAR',
+    party: 'Fixture Constructora',
+    concept: 'Saldo pendiente por impresión de planos',
+    total: 600,
+  })
+  await localAdapter.payDebt(manualBase.id, 200, 'Efectivo', 'Test')
+  const manual = (await localAdapter.listDebts()).find((d) => d.id === manualBase.id)!
+  check('cuenta: creada a mano, sin pedido detrás', manual.workOrderId, null)
   check('cuenta: ya tiene S/200 abonados', manual.paid, 200)
 
   const corregida2 = await localAdapter.updateDebt(manual.id, {
-    party: 'Constructora del Centro S.A.', concept: 'Planos corregidos', total: 700, dueDate: null,
+    party: 'Fixture Constructora S.A.', concept: 'Planos corregidos', total: 700, dueDate: null,
   })
-  check('cuenta: cliente corregido', corregida2.party, 'Constructora del Centro S.A.')
+  check('cuenta: cliente corregido', corregida2.party, 'Fixture Constructora S.A.')
   check('cuenta: total corregido', corregida2.total, 700)
   check('cuenta: saldo recalculado', corregida2.balance, 500)
 
@@ -871,6 +889,70 @@ async function main() {
     })(),
     true,
   )
+
+  // --- datos de demostración: volumen e invariantes ------------------------
+  const fija = new Date('2026-09-17T12:00:00.000Z')
+  const demo = generarDemoIntermedio({ hasta: fija })
+  const demo2 = generarDemoIntermedio({ hasta: fija })
+
+  check('demo: es determinista', JSON.stringify(demo) === JSON.stringify(demo2), true)
+  check('demo: otra semilla da otro negocio',
+    JSON.stringify(generarDemoIntermedio({ hasta: fija, semilla: 99 })) === JSON.stringify(demo), false)
+
+  check('demo: hay volumen de pedidos', demo.workOrders.length > 60, true)
+  check('demo: hay volumen de asientos', demo.transactions.length > 100, true)
+  check('demo: suficientes filas para paginar', demo.transactions.length > 25, true)
+  check('demo: hay proformas', demo.proformas.length, 18)
+  check('demo: hay cierres de caja', demo.closings.length > 0, true)
+  check('demo: hay deudas por pagar', demo.debts.some((d) => d.kind === 'PAGAR'), true)
+  check('demo: hay deudas por cobrar', demo.debts.some((d) => d.kind === 'COBRAR'), true)
+
+  // --- las mismas guardas que protege Postgres ---
+  check('demo: ningún adelanto supera su total',
+    demo.workOrders.every((w) => w.advance <= w.total + 0.001), true)
+  check('demo: todo pedido tiene al menos un trabajo',
+    demo.workOrders.every((w) => w.items.length >= 1), true)
+  check('demo: el total del pedido es la suma de sus trabajos',
+    demo.workOrders.every((w) =>
+      Math.abs(w.items.reduce((s, i) => s + i.amount, 0) - w.total) < 0.02), true)
+  check('demo: ningún importe es cero o negativo',
+    demo.transactions.every((t) => t.amount > 0), true)
+
+  // --- coherencia entre pedido, asiento y deuda ---
+  const porPedido = new Map(demo.workOrders.map((w) => [w.id, w]))
+  check('demo: cada asiento de pedido cuadra con su adelanto',
+    demo.transactions
+      .filter((t) => t.workOrderId)
+      .every((t) => Math.abs((porPedido.get(t.workOrderId!)?.advance ?? -1) - t.amount) < 0.02),
+    true)
+  check('demo: un pedido pagado entero no deja deuda',
+    demo.workOrders
+      .filter((w) => Math.abs(w.advance - w.total) < 0.01)
+      .every((w) => !demo.debts.some((d) => d.workOrderId === w.id)),
+    true)
+
+  // --- los abonos nunca superan el saldo de su cuenta ---
+  const abonadoPorDeuda = new Map<string, number>()
+  for (const p of demo.payments) {
+    abonadoPorDeuda.set(p.debtId, (abonadoPorDeuda.get(p.debtId) ?? 0) + p.amount)
+  }
+  check('demo: ningún abono supera el saldo de su cuenta',
+    demo.debts.every((d) => (abonadoPorDeuda.get(d.id) ?? 0) <= d.total + 0.02), true)
+  check('demo: cada abono tiene su asiento',
+    demo.payments.every((p) => demo.transactions.some((t) => t.id === p.transactionId)), true)
+
+  // --- los vouchers siguen siendo únicos y correlativos ---
+  check('demo: vouchers únicos',
+    new Set(demo.transactions.map((t) => t.voucher)).size, demo.transactions.length)
+  check('demo: identificadores únicos',
+    new Set(demo.transactions.map((t) => t.id)).size, demo.transactions.length)
+
+  // --- los cierres cuadran con el efectivo de su ventana ---
+  check('demo: los cierres respetan diferencia = contado − esperado',
+    demo.closings.every((c) =>
+      Math.abs(c.difference - (c.countedCash - c.expectedCash)) < 0.02), true)
+  check('demo: la mayoría de cierres cuadran exactos',
+    demo.closings.filter((c) => c.difference === 0).length >= demo.closings.length / 2, true)
 
   // j) orden descendente por fecha
   const ordered = buildLedgerRows({
