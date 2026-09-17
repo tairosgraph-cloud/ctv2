@@ -42,3 +42,13 @@ report.pdf
 
 # Conexión para migraciones (contiene la URL del proyecto)
 .env.db
+
+# Artefactos con credenciales que generan las herramientas.
+# No los crea el proyecto, pero si aparecen no deben subirse jamás.
+.pgcreds
+.pgpass
+*.dump
+dump.sql
+backup.sql
+creds.json
+supabase/.temp/

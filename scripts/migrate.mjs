@@ -11,8 +11,11 @@
  *   - La contraseña la resuelve psql desde ~/.pgpass, fuera del proyecto.
  *
  * Uso:
- *   npm run db:status    ver qué está aplicado y qué falta
- *   npm run db:migrate   aplicar lo pendiente
+ *   npm run db:status     ver qué está aplicado y qué falta
+ *   npm run db:migrate    aplicar lo pendiente
+ *   npm run db:baseline   adoptar una base que YA tiene el esquema: anota todo
+ *                         como aplicado sin ejecutarlo. Solo la primera vez,
+ *                         sobre una base cuyo esquema ya coincide.
  */
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
@@ -74,6 +77,23 @@ const aplicadas = new Map(
 )
 
 const soloEstado = process.argv.includes('--status')
+const adoptar = process.argv.includes('--baseline')
+
+if (adoptar) {
+  // Reaplicar migraciones sobre un esquema que ya las tiene no es inocuo: por
+  // ejemplo 0001 recrea una vista que 0002 amplía, y Postgres lo rechaza. Lo
+  // correcto al adoptar una base existente es registrar, no ejecutar.
+  for (const nombre of archivos) {
+    const actual = huella(join(DIRECTORIO, nombre))
+    sql(
+      `insert into ${TABLA} (version, checksum) values ('${nombre}', '${actual}')
+       on conflict (version) do update set checksum = excluded.checksum`,
+    )
+    console.log(`  registrada  ${nombre}`)
+  }
+  console.log(`\n${archivos.length} migraciones registradas como aplicadas. Nada se ejecutó.`)
+  process.exit(0)
+}
 let pendientes = 0
 let alteradas = 0
 

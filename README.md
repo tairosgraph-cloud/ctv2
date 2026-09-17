@@ -30,6 +30,40 @@ La base quedó **vacía a propósito**: se probó el circuito completo (pedido c
 adelanto → asiento + deuda) y se borraron los datos de prueba. Si quieres
 cargar los datos de demostración, ejecuta `supabase/seed.sql`.
 
+### Migraciones
+
+```bash
+npm run db:status     # qué está aplicado y qué falta
+npm run db:migrate    # aplicar lo pendiente
+npm run db:baseline   # adoptar una base que ya tiene el esquema
+```
+
+`scripts/migrate.mjs` lleva un registro en la tabla `schema_migrations`: aplica
+solo lo que falta, cada archivo dentro de una transacción, y **avisa si alguien
+edita una migración ya aplicada** (la forma clásica de que dos entornos acaben
+con esquemas distintos sin que nadie se entere).
+
+`db:baseline` existe porque reaplicar migraciones sobre un esquema que ya las
+tiene no es inocuo: `0001` recrea una vista que `0002` amplía, y Postgres lo
+rechaza con `cannot drop columns from view`. Al adoptar una base existente hay
+que registrar, no ejecutar.
+
+### Dónde viven las credenciales
+
+Separadas por destino, no por archivo:
+
+| Dato | Dónde | Por qué |
+| --- | --- | --- |
+| URL + clave publicable | `.env.local` | Van al navegador a propósito |
+| Contraseña de la base | `~/.pgpass` (fuera del repo, 600) | `psql` la lee sola; no está en el proyecto, así que no se puede commitear |
+| Conexión de migración | `.env.db` (ignorado), **sin** contraseña | La URL del proyecto ya es pública: está en el bundle |
+| Clave secreta | Gestor de contraseñas | La app nunca la necesita |
+
+> **`.env.local` no es un archivo de secretos.** Cualquier variable con prefijo
+> `VITE_` que el código referencie queda literalmente escrita en el JavaScript
+> público. Comprobado: basta una referencia viva para que el valor aparezca
+> íntegro en `dist/assets/index-*.js`.
+
 ### Para clonar el proyecto en otra máquina
 
 1. Copia `.env.example` a `.env.local` y rellena `VITE_SUPABASE_URL` y
