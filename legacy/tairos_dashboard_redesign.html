@@ -1,0 +1,2117 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-slate-900 text-slate-100 font-sans antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tairos.rc - Asistente Comercial, Proformas, Deudas e Historial</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Space Grotesk', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f0fdfa',
+                            100: '#ccfbf1',
+                            200: '#99f6e4',
+                            400: '#2dd4bf',
+                            500: '#14b8a6',
+                            600: '#0d9488',
+                            700: '#0f766e',
+                            800: '#0a5c53', // Tairos Primary Teal
+                            900: '#06423d', // Dark Tairos Green
+                            950: '#022c28',
+                        }
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'spin-slow': 'spin 12s linear infinite',
+                        'float': 'float 4s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-8px)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #0d9488;
+            border-radius: 9999px;
+        }
+        .brain-glow {
+            box-shadow: 0 0 50px rgba(13, 148, 136, 0.35), inset 0 0 30px rgba(20, 184, 166, 0.2);
+        }
+        .mic-pulse-ring {
+            animation: micPulse 1.8s ease-out infinite;
+        }
+        @keyframes micPulse {
+            0% { transform: scale(0.95); opacity: 1; box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.7); }
+            70% { transform: scale(1.15); opacity: 0; box-shadow: 0 0 0 20px rgba(20, 184, 166, 0); }
+            100% { transform: scale(0.95); opacity: 0; box-shadow: 0 0 0 0 rgba(20, 184, 166, 0); }
+        }
+        .gradient-text {
+            background: linear-gradient(135deg, #2dd4bf 0%, #99f6e4 50%, #ffffff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+    </style>
+</head>
+<body class="h-full bg-slate-950 text-slate-100 flex flex-col overflow-x-hidden selection:bg-brand-500 selection:text-slate-950">
+
+    <div id="toastContainer" class="fixed top-5 right-5 z-50 flex flex-col gap-2.5 pointer-events-none"></div>
+
+    <!-- ========================================================================= -->
+    <!-- SECTION 1: AI BRAIN ASSISTANT PRESENTATION OVERLAY (ONBOARDING GATEWAY)    -->
+    <!-- ========================================================================= -->
+    <div id="welcomeGateway" class="fixed inset-0 z-50 bg-slate-950 flex flex-col justify-between p-4 md:p-8 transition-all duration-700 overflow-y-auto">
+        
+        <header class="w-full max-w-7xl mx-auto flex items-center justify-between py-2">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-brand-800 border border-brand-500/40 text-brand-300 flex items-center justify-center text-xl shadow-lg shadow-brand-900/40">
+                    <i class="fa-solid fa-brain text-brand-400"></i>
+                </div>
+                <div>
+                    <h1 class="font-display font-bold text-xl text-white tracking-wide">tairos<span class="text-brand-400">.rc</span></h1>
+                    <p class="text-[11px] text-brand-300/70 font-medium">Asistente Virtual por Voz</p>
+                </div>
+            </div>
+
+            <button onclick="enterPlatform()" class="group relative px-5 py-2.5 rounded-2xl bg-brand-800 hover:bg-brand-700 text-white font-semibold text-xs md:text-sm shadow-lg shadow-brand-900/50 border border-brand-500/30 transition-all flex items-center gap-2">
+                <span>Ingresar a la Plataforma</span>
+                <i class="fa-solid fa-arrow-right group-hover:translate-x-1 transition-transform text-brand-300"></i>
+            </button>
+        </header>
+
+        <main class="w-full max-w-5xl mx-auto my-auto py-8 flex flex-col items-center text-center space-y-8">
+            
+            <div class="relative w-64 h-64 md:w-80 md:h-80 flex items-center justify-center">
+                <div class="absolute inset-0 rounded-full bg-brand-600/20 blur-3xl brain-glow animate-pulse-slow"></div>
+                <canvas id="brainCanvas" width="320" height="320" class="relative z-10 w-full h-full cursor-pointer" onclick="triggerBrainGreeting()" title="Haz clic para escuchar al cerebro AI"></canvas>
+                <div id="audioWaveRing" class="absolute inset-0 rounded-full border-2 border-brand-500/30 scale-100 transition-all duration-300 pointer-events-none"></div>
+
+                <button onclick="triggerBrainGreeting()" class="absolute z-20 w-16 h-16 rounded-full bg-brand-800/90 border-2 border-brand-400 text-brand-200 hover:text-white hover:scale-105 hover:bg-brand-700 flex items-center justify-center text-xl shadow-2xl transition-all shadow-brand-500/50">
+                    <i id="brainSpeakerIcon" class="fa-solid fa-volume-high animate-bounce"></i>
+                </button>
+            </div>
+
+            <div class="max-w-2xl space-y-4">
+                <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-900/60 border border-brand-500/30 text-brand-300 text-xs font-semibold tracking-wide uppercase">
+                    <span class="w-2 h-2 rounded-full bg-brand-400 animate-ping"></span>
+                    <span>Guía Interactivo con IA</span>
+                </div>
+
+                <h2 class="font-display text-2xl md:text-4xl font-extrabold text-white leading-tight">
+                    "Hola, soy el <span class="gradient-text">Cerebro Tairos</span>. Te ayudo a controlar tu negocio hablando."
+                </h2>
+
+                <div id="brainSpeechBox" class="p-5 md:p-6 rounded-3xl bg-slate-900/90 border border-slate-800/90 backdrop-blur-md shadow-2xl text-slate-300 text-sm md:text-base leading-relaxed text-left min-h-[100px] flex items-center justify-center relative">
+                    <p id="brainSpeechText" class="text-center italic text-brand-100/90 font-medium">
+                        «Haz clic en el cerebro o elige un módulo abajo para aprender sobre proformas, deudas, abonos o tu resumen contable.»
+                    </p>
+                </div>
+            </div>
+
+            <div class="w-full max-w-3xl space-y-3">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Pregúntame o elige un tema para explicarte:</p>
+                
+                <div class="flex flex-wrap items-center justify-center gap-2.5">
+                    <button onclick="speakTopic('que_es')" class="px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-brand-900/80 border border-slate-800 hover:border-brand-500/50 text-xs md:text-sm font-semibold text-slate-200 hover:text-white transition-all flex items-center gap-2 shadow-sm">
+                        <i class="fa-solid fa-circle-info text-brand-400"></i>
+                        <span>¿Qué es Tairos.rc?</span>
+                    </button>
+
+                    <button onclick="speakTopic('proformas')" class="px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-brand-900/80 border border-slate-800 hover:border-brand-500/50 text-xs md:text-sm font-semibold text-slate-200 hover:text-white transition-all flex items-center gap-2 shadow-sm">
+                        <i class="fa-solid fa-file-invoice text-brand-400"></i>
+                        <span>¿Cómo funcionan las Proformas?</span>
+                    </button>
+
+                    <button onclick="speakTopic('deudas')" class="px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-brand-900/80 border border-slate-800 hover:border-brand-500/50 text-xs md:text-sm font-semibold text-slate-200 hover:text-white transition-all flex items-center gap-2 shadow-sm">
+                        <i class="fa-solid fa-hand-holding-dollar text-brand-400"></i>
+                        <span>Deudas, Cobros y Abonos</span>
+                    </button>
+
+                    <button onclick="speakTopic('dictado')" class="px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-brand-900/80 border border-slate-800 hover:border-brand-500/50 text-xs md:text-sm font-semibold text-slate-200 hover:text-white transition-all flex items-center gap-2 shadow-sm">
+                        <i class="fa-solid fa-microphone text-brand-400"></i>
+                        <span>Dictado por Voz</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Voice/Text Input Prompt -->
+            <div class="w-full max-w-xl relative">
+                <form onsubmit="askBrainQuestion(event)" class="relative flex items-center">
+                    <input type="text" id="brainQuestionInput" placeholder="Hazle una pregunta al cerebro AI sobre Tairos..." 
+                           class="w-full bg-slate-900/90 border border-slate-800 focus:border-brand-500 text-xs md:text-sm text-white placeholder-slate-500 rounded-2xl pl-4 pr-24 py-3.5 outline-none transition-all shadow-inner">
+                    <div class="absolute right-2 flex items-center gap-1.5">
+                        <button type="button" onclick="startBrainVoiceInput()" id="brainMicBtn" title="Hablar con el Cerebro"
+                                class="w-9 h-9 rounded-xl bg-brand-800 hover:bg-brand-700 text-white flex items-center justify-center text-sm transition-all shadow">
+                            <i class="fa-solid fa-microphone"></i>
+                        </button>
+                        <button type="submit" title="Preguntar" 
+                                class="w-9 h-9 rounded-xl bg-brand-600 hover:bg-brand-500 text-white flex items-center justify-center text-sm transition-all shadow">
+                            <i class="fa-solid fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="pt-4">
+                <button onclick="enterPlatform()" class="px-8 py-4 rounded-2xl bg-gradient-to-r from-brand-700 via-brand-600 to-teal-500 hover:from-brand-600 hover:to-teal-400 text-white font-bold text-base shadow-xl shadow-brand-900/60 border border-brand-400/40 transition-all transform hover:-translate-y-0.5 active:translate-y-0 flex items-center gap-3">
+                    <i class="fa-solid fa-right-to-bracket text-lg"></i>
+                    <span>Ingresar a la Plataforma Tairos</span>
+                    <i class="fa-solid fa-chevron-right text-xs"></i>
+                </button>
+            </div>
+
+        </main>
+
+        <footer class="w-full text-center text-xs text-slate-500 py-2 border-t border-slate-900">
+            Tairos.rc — Sistema Comercial e Historial de Movimientos Financieros
+        </footer>
+    </div>
+
+
+    <!-- ========================================================================= -->
+    <!-- SECTION 2: MAIN TAIROS DASHBOARD (MULTITAB PLATFORM)                      -->
+    <!-- ========================================================================= -->
+    <div id="mainDashboard" class="h-full w-full bg-slate-50 text-slate-800 hidden flex flex-col md:flex-row overflow-hidden transition-all duration-700">
+
+        <aside class="w-64 bg-white border-r border-slate-200/90 flex flex-col justify-between shrink-0 hidden md:flex z-20">
+            <div class="p-5">
+                <div class="flex items-center gap-3 px-2 mb-8">
+                    <div class="w-10 h-10 rounded-2xl bg-brand-800 text-brand-100 flex items-center justify-center font-bold text-xl shadow-md shadow-brand-900/20">
+                        <i class="fa-solid fa-microphone-lines text-brand-300"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg text-slate-900 leading-tight">tairos<span class="text-brand-700">.rc</span></h1>
+                        <p class="text-xs text-slate-400 font-medium">Asistente Comercial</p>
+                    </div>
+                </div>
+
+                <!-- Navigation Links -->
+                <nav class="space-y-6">
+                    <div>
+                        <p class="px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Espacio Principal</p>
+                        <div class="space-y-1">
+                            <button onclick="switchTab('registro')" id="nav-tab-registro" class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl bg-brand-50 text-brand-800 font-semibold text-sm transition-all border border-brand-200/50 shadow-2xs text-left">
+                                <i class="fa-solid fa-book-bookmark text-brand-700 w-5"></i>
+                                <span>Registro Contable</span>
+                            </button>
+                            <button onclick="switchTab('movimientos')" id="nav-tab-movimientos" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 font-medium text-sm transition-all text-left">
+                                <div class="flex items-center gap-3">
+                                    <i class="fa-solid fa-arrow-right-arrow-left text-slate-400 w-5"></i>
+                                    <span>Movimientos</span>
+                                </div>
+                                <span class="bg-brand-100 text-brand-800 text-[10px] font-bold px-2 py-0.5 rounded-full" id="sidebarBadgeMovs">5</span>
+                            </button>
+                            <button onclick="switchTab('proformas')" id="nav-tab-proformas" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 font-medium text-sm transition-all text-left">
+                                <div class="flex items-center gap-3">
+                                    <i class="fa-solid fa-file-invoice text-slate-400 w-5"></i>
+                                    <span>Proformas</span>
+                                </div>
+                                <span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full" id="sidebarBadgeProformas">3</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <p class="px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Gestión y Cuentas</p>
+                        <div class="space-y-1">
+                            <button onclick="switchTab('deudas')" id="nav-tab-deudas" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 font-medium text-sm transition-all text-left">
+                                <div class="flex items-center gap-3">
+                                    <i class="fa-solid fa-hand-holding-dollar text-slate-400 w-5"></i>
+                                    <span>Deudas / Cobros</span>
+                                </div>
+                                <span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full" id="sidebarBadgeDeudas">2</span>
+                            </button>
+                            <button onclick="switchTab('arqueo')" id="nav-tab-arqueo" class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 font-medium text-sm transition-all text-left">
+                                <i class="fa-solid fa-chart-pie text-slate-400 w-5"></i>
+                                <span>Arqueo de Caja</span>
+                            </button>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 space-y-3">
+                <button onclick="reopenGateway()" class="w-full flex items-center justify-between p-3 rounded-2xl bg-brand-50 hover:bg-brand-100/80 border border-brand-200/80 transition-all text-left group">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-8 h-8 rounded-xl bg-brand-800 text-brand-200 flex items-center justify-center text-xs shadow-sm">
+                            <i class="fa-solid fa-brain"></i>
+                        </div>
+                        <div>
+                            <p class="text-xs font-bold text-brand-900">Asistente Cerebro</p>
+                            <p class="text-[10px] text-brand-700">Ver guía interactiva</p>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-right text-xs text-brand-600 group-hover:translate-x-0.5 transition-transform"></i>
+                </button>
+
+                <div class="flex items-center justify-between pt-1 px-1">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-xl bg-brand-800 text-white font-bold flex items-center justify-center text-xs shadow-sm">
+                            ML
+                        </div>
+                        <div>
+                            <p class="text-xs font-semibold text-slate-800 leading-none">María López</p>
+                            <p class="text-[10px] text-slate-400 mt-1">Administradora</p>
+                        </div>
+                    </div>
+                    <button onclick="reopenGateway()" class="text-slate-400 hover:text-slate-600 text-xs p-1" title="Inicio / Salir">
+                        <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Workspace Area -->
+        <div class="flex-1 flex flex-col h-full overflow-hidden bg-slate-50">
+            
+            <header class="h-16 bg-white border-b border-slate-200/80 px-4 md:px-8 flex items-center justify-between shrink-0">
+                <div class="flex items-center gap-4 flex-1 max-w-xl">
+                    <button class="md:hidden text-slate-600 p-2 rounded-lg hover:bg-slate-100">
+                        <i class="fa-solid fa-bars text-lg"></i>
+                    </button>
+                    <div class="relative w-full">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                        <input type="text" id="globalHeaderSearch" oninput="handleGlobalSearch(this.value)" placeholder="Buscar en movimientos, proformas, deudas..." 
+                               class="w-full bg-slate-100/80 border border-transparent focus:border-brand-500 focus:bg-white text-xs text-slate-700 rounded-xl pl-9 pr-12 py-2.5 transition-all outline-none">
+                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-slate-400 bg-white border border-slate-200 px-1.5 py-0.5 rounded">⌘K</span>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <button onclick="openExportSummaryModal()" class="px-3.5 py-2 rounded-xl bg-brand-800 hover:bg-brand-900 text-white text-xs font-semibold shadow-sm transition-all flex items-center gap-2">
+                        <i class="fa-solid fa-file-export"></i>
+                        <span class="hidden sm:inline">Exportar Resumen</span>
+                    </button>
+
+                    <button onclick="reopenGateway()" class="px-3 py-2 rounded-xl bg-brand-50 border border-brand-200 text-brand-800 text-xs font-semibold hover:bg-brand-100 transition-all flex items-center gap-1.5">
+                        <i class="fa-solid fa-brain text-brand-600"></i>
+                        <span>Guía Voice</span>
+                    </button>
+
+                    <div class="hidden lg:flex items-center gap-2 bg-slate-100/80 px-3 py-2 rounded-xl border border-slate-200/60 text-slate-600 text-xs font-medium">
+                        <i class="fa-regular fa-calendar text-brand-700"></i>
+                        <span id="currentDateText">Sábado, 22 de Agosto</span>
+                    </div>
+                </div>
+            </header>
+
+            <main class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 space-y-6">
+                
+                <!-- Page Title & Top Cards Header -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-xl md:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2" id="workspaceTitle">
+                            Libro Contable Diario
+                        </h2>
+                        <p class="text-xs md:text-sm text-slate-500 mt-0.5" id="workspaceSubtitle">Registro de ingresos y egresos en tiempo real.</p>
+                    </div>
+
+                    <!-- Quick Balance Header Badge -->
+                    <div class="flex items-center gap-3 bg-white p-2 px-3.5 rounded-2xl border border-slate-200/80 shadow-2xs">
+                        <div class="text-right">
+                            <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Balance Neto</p>
+                            <p class="text-sm font-bold text-slate-900" id="totalBalanceHeader">S/ +580.00</p>
+                        </div>
+                        <div class="w-8 h-8 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center font-bold text-xs">
+                            <i class="fa-solid fa-wallet"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Global Stats Row -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs flex items-center justify-between hover:border-brand-300 transition-all">
+                        <div>
+                            <p class="text-xs font-medium text-slate-500">Ingresos Totales</p>
+                            <h3 class="text-xl font-bold text-slate-900 mt-1" id="statIngresos">S/ 1,140.00</h3>
+                            <p class="text-[11px] font-medium text-emerald-600 mt-1 flex items-center gap-1">
+                                <i class="fa-solid fa-arrow-up text-[10px]"></i>
+                                <span>Entradas registradas</span>
+                            </p>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center text-lg font-semibold shrink-0">
+                            <i class="fa-solid fa-arrow-down-left"></i>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs flex items-center justify-between hover:border-brand-300 transition-all">
+                        <div>
+                            <p class="text-xs font-medium text-slate-500">Egresos Totales</p>
+                            <h3 class="text-xl font-bold text-slate-900 mt-1" id="statEgresos">S/ 560.00</h3>
+                            <p class="text-[11px] font-medium text-rose-600 mt-1 flex items-center gap-1">
+                                <i class="fa-solid fa-arrow-down text-[10px]"></i>
+                                <span>Gastos y compras</span>
+                            </p>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center text-lg font-semibold shrink-0">
+                            <i class="fa-solid fa-arrow-up-right"></i>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs flex items-center justify-between hover:border-brand-300 transition-all">
+                        <div>
+                            <p class="text-xs font-medium text-slate-500">Por Cobrar (Clientes)</p>
+                            <h3 class="text-xl font-bold text-slate-900 mt-1" id="statPorCobrar">S/ 850.00</h3>
+                            <p class="text-[11px] font-medium text-amber-600 mt-1 flex items-center gap-1">
+                                <i class="fa-solid fa-clock text-[10px]"></i>
+                                <span>Deudas a favor</span>
+                            </p>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center text-lg font-semibold shrink-0">
+                            <i class="fa-solid fa-hand-holding-dollar"></i>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs flex items-center justify-between hover:border-brand-300 transition-all">
+                        <div>
+                            <p class="text-xs font-medium text-slate-500">Proformas Cotizadas</p>
+                            <h3 class="text-xl font-bold text-slate-900 mt-1" id="statProformas">S/ 1,420.00</h3>
+                            <p class="text-[11px] font-medium text-purple-600 mt-1 flex items-center gap-1">
+                                <i class="fa-solid fa-file-invoice text-[10px]"></i>
+                                <span id="statProformasCount">3 vigentes</span>
+                            </p>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-purple-50 text-purple-700 flex items-center justify-center text-lg font-semibold shrink-0">
+                            <i class="fa-solid fa-calculator"></i>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- ========================================================================= -->
+                <!-- VIEW 1: REGISTRO CONTABLE                                                 -->
+                <!-- ========================================================================= -->
+                <div id="viewRegistro" class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    
+                    <!-- Left Form Column -->
+                    <section class="lg:col-span-4 bg-white rounded-3xl border border-slate-200/80 shadow-2xs p-5 space-y-4">
+                        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-9 h-9 rounded-xl bg-brand-800 text-white flex items-center justify-center text-sm shadow-sm">
+                                    <i class="fa-solid fa-plus-circle"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-slate-900 text-sm">Nuevo Registro</h3>
+                                    <p class="text-[11px] text-slate-400">Asiento contable directo</p>
+                                </div>
+                            </div>
+                            
+                            <button type="button" onclick="toggleMainVoiceRecording()" id="micBtn" title="Dictar datos del asiento" 
+                                    class="w-8 h-8 rounded-xl bg-brand-50 hover:bg-brand-100 text-brand-700 flex items-center justify-center text-xs transition-all border border-brand-200">
+                                <i class="fa-solid fa-microphone" id="micIcon"></i>
+                            </button>
+                        </div>
+
+                        <form id="ledgerForm" onsubmit="handleAddTransaction(event)" class="space-y-3.5">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Tipo de Movimiento</label>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="txType" value="Ingreso" checked class="peer sr-only">
+                                        <div class="p-2.5 rounded-xl border border-slate-200 text-center text-xs font-semibold text-slate-600 peer-checked:bg-emerald-500 peer-checked:text-white peer-checked:border-emerald-500 transition-all flex items-center justify-center gap-1.5">
+                                            <i class="fa-solid fa-arrow-down-left text-[10px]"></i>
+                                            <span>Ingreso</span>
+                                        </div>
+                                    </label>
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="txType" value="Egreso" class="peer sr-only">
+                                        <div class="p-2.5 rounded-xl border border-slate-200 text-center text-xs font-semibold text-slate-600 peer-checked:bg-rose-500 peer-checked:text-white peer-checked:border-rose-500 transition-all flex items-center justify-center gap-1.5">
+                                            <i class="fa-solid fa-arrow-up-right text-[10px]"></i>
+                                            <span>Egreso</span>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label for="txAmount" class="block text-xs font-semibold text-slate-700 mb-1">Monto (S/)</label>
+                                <div class="relative">
+                                    <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">S/</span>
+                                    <input type="number" step="0.01" min="0.1" id="txAmount" required placeholder="0.00"
+                                           class="w-full bg-slate-50 border border-slate-200 focus:border-brand-500 focus:bg-white text-xs font-bold text-slate-800 rounded-xl pl-9 pr-3 py-2.5 outline-none transition-all">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label for="txCategory" class="block text-xs font-semibold text-slate-700 mb-1">Categoría</label>
+                                    <select id="txCategory" class="w-full bg-slate-50 border border-slate-200 focus:border-brand-500 text-xs text-slate-700 rounded-xl px-2.5 py-2.5 outline-none">
+                                        <option value="Ventas">Ventas</option>
+                                        <option value="Servicios">Servicios</option>
+                                        <option value="Materiales">Materiales</option>
+                                        <option value="Servicios Básicos">Servicios B.</option>
+                                        <option value="Otros">Otros</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="txPayment" class="block text-xs font-semibold text-slate-700 mb-1">Método de Pago</label>
+                                    <select id="txPayment" class="w-full bg-slate-50 border border-slate-200 focus:border-brand-500 text-xs text-slate-700 rounded-xl px-2.5 py-2.5 outline-none">
+                                        <option value="Efectivo">Efectivo</option>
+                                        <option value="Yape/Plin">Yape / Plin</option>
+                                        <option value="Transferencia">Transferencia BCP</option>
+                                        <option value="Tarjeta">Tarjeta POS</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label for="txParty" class="block text-xs font-semibold text-slate-700 mb-1">Cliente / Proveedor</label>
+                                <input type="text" id="txParty" placeholder="Ej: Juan Pérez / Editorial Pacheco"
+                                       class="w-full bg-slate-50 border border-slate-200 focus:border-brand-500 focus:bg-white text-xs text-slate-800 rounded-xl px-3 py-2.5 outline-none transition-all">
+                            </div>
+
+                            <div>
+                                <label for="txVoucher" class="block text-xs font-semibold text-slate-700 mb-1">N° Operación / Voucher (Opcional)</label>
+                                <input type="text" id="txVoucher" placeholder="Ej: OP-849201"
+                                       class="w-full bg-slate-50 border border-slate-200 focus:border-brand-500 focus:bg-white text-xs text-slate-800 rounded-xl px-3 py-2.5 outline-none transition-all">
+                            </div>
+
+                            <div>
+                                <label for="txConcept" class="block text-xs font-semibold text-slate-700 mb-1">Concepto / Detalle</label>
+                                <input type="text" id="txConcept" required placeholder="Ej: 1000 Volantes A6 Impresión"
+                                       class="w-full bg-slate-50 border border-slate-200 focus:border-brand-500 focus:bg-white text-xs text-slate-800 rounded-xl px-3 py-2.5 outline-none transition-all">
+                            </div>
+
+                            <button type="submit" 
+                                    class="w-full bg-brand-800 hover:bg-brand-900 text-white text-xs font-bold py-3 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-check-circle"></i>
+                                <span>Guardar en Libro Contable</span>
+                            </button>
+                        </form>
+                    </section>
+
+                    <!-- Right Table Column -->
+                    <section class="lg:col-span-8 bg-white rounded-3xl border border-slate-200/80 shadow-2xs overflow-hidden flex flex-col min-h-[540px]">
+                        <div class="p-4 md:p-5 border-b border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div class="flex items-center gap-3">
+                                <div class="w-9 h-9 rounded-xl bg-brand-50 text-brand-800 flex items-center justify-center text-sm font-bold">
+                                    <i class="fa-solid fa-book"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-slate-900 text-sm">Asientos Contables Recientes</h3>
+                                    <p class="text-[11px] text-slate-400" id="ledgerCountSub">Mostrando diario contable</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center gap-2">
+                                <div class="relative">
+                                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                                    <input type="text" id="searchLedgerInput" oninput="renderLedger()" placeholder="Buscar concepto o cliente..." 
+                                           class="bg-slate-100 text-xs text-slate-700 pl-8 pr-3 py-1.5 rounded-xl border border-slate-200/80 outline-none focus:border-brand-500 w-36 sm:w-48">
+                                </div>
+
+                                <select id="filterTypeSelect" onchange="renderLedger()" class="bg-slate-100 text-xs font-semibold text-slate-700 px-2.5 py-1.5 rounded-xl border border-slate-200/80 outline-none">
+                                    <option value="ALL">Todos</option>
+                                    <option value="Ingreso">Ingresos</option>
+                                    <option value="Egreso">Egresos</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="flex-1 overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-slate-50/80 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                        <th class="p-3.5 pl-5">Fecha / Tipo</th>
+                                        <th class="p-3.5">Detalle / Concepto</th>
+                                        <th class="p-3.5">Cliente / Prov.</th>
+                                        <th class="p-3.5">Categoría</th>
+                                        <th class="p-3.5">Método</th>
+                                        <th class="p-3.5 text-right">Monto</th>
+                                        <th class="p-3.5 pr-5 text-center">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ledgerTableBody" class="divide-y divide-slate-100 text-xs text-slate-700 font-medium">
+                                    <!-- Dynamic rows loaded by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="p-3.5 px-5 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                            <span>Sistema Contable Simplificado Tairos</span>
+                            <button onclick="openExportSummaryModal()" class="text-brand-700 hover:text-brand-900 font-semibold flex items-center gap-1.5">
+                                <i class="fa-solid fa-file-export"></i>
+                                <span>Exportar Resumen Reporte</span>
+                            </button>
+                        </div>
+                    </section>
+                </div>
+
+
+                <!-- ========================================================================= -->
+                <!-- VIEW 2: HISTORIAL Y CONTROL DETALLADO DE MOVIMIENTOS                     -->
+                <!-- ========================================================================= -->
+                <div id="viewMovimientos" class="space-y-6 hidden">
+                    
+                    <!-- Explanation Banner -->
+                    <div class="p-4 md:p-5 rounded-3xl bg-gradient-to-r from-brand-900/90 via-slate-900 to-slate-900 text-white border border-brand-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
+                        <div class="flex items-start gap-3.5">
+                            <div class="w-10 h-10 rounded-2xl bg-brand-800 text-brand-300 flex items-center justify-center text-lg shrink-0 border border-brand-500/40 mt-0.5">
+                                <i class="fa-solid fa-arrow-right-arrow-left"></i>
+                            </div>
+                            <div class="space-y-1">
+                                <h3 class="font-bold text-sm md:text-base text-brand-100">¿Qué incluye el Historial de Movimientos?</h3>
+                                <p class="text-xs text-slate-300 leading-relaxed max-w-3xl">
+                                    A diferencia del registro rápido, aquí encuentras la <strong>trazabilidad auditada</strong>: estado de conciliación bancaria (*Completado*, *Pendiente*, *Anulado*), desglose de flujo por cuenta (Caja Física, Yape, BCP), números de vouchers y auditoría de usuario.
+                                </p>
+                            </div>
+                        </div>
+                        <button onclick="speakTopic('movimientos')" class="shrink-0 px-4 py-2.5 rounded-2xl bg-brand-800/80 hover:bg-brand-700 text-brand-200 text-xs font-semibold border border-brand-400/40 flex items-center gap-2 transition-all">
+                            <i class="fa-solid fa-volume-high text-brand-400"></i>
+                            <span>Explicación en Audio</span>
+                        </button>
+                    </div>
+
+                    <!-- Movimientos Filter Controls Bar -->
+                    <div class="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-2xs space-y-3">
+                        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="text-xs font-bold text-slate-700 uppercase tracking-wide">Filtrar por:</span>
+                                
+                                <select id="movFilterAccount" onchange="renderMovimientosTable()" class="bg-slate-100 text-xs font-semibold text-slate-700 px-3 py-2 rounded-xl border border-slate-200 outline-none">
+                                    <option value="ALL">Todas las Cuentas</option>
+                                    <option value="Efectivo">Caja Física (Efectivo)</option>
+                                    <option value="Yape/Plin">Yape / Plin</option>
+                                    <option value="Transferencia">Banco BCP</option>
+                                    <option value="Tarjeta">Tarjeta POS</option>
+                                </select>
+
+                                <select id="movFilterStatus" onchange="renderMovimientosTable()" class="bg-slate-100 text-xs font-semibold text-slate-700 px-3 py-2 rounded-xl border border-slate-200 outline-none">
+                                    <option value="ALL">Todos los Estados</option>
+                                    <option value="Completado">Completados</option>
+                                    <option value="Pendiente">Pendientes de Pago/Cobro</option>
+                                    <option value="Anulado">Anulados</option>
+                                </select>
+                            </div>
+
+                            <div class="flex items-center gap-2">
+                                <div class="relative flex-1 sm:w-64">
+                                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                                    <input type="text" id="movSearchInput" oninput="renderMovimientosTable()" placeholder="Buscar voucher, cliente o concepto..."
+                                           class="w-full bg-slate-100 text-xs text-slate-700 pl-9 pr-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-brand-500">
+                                </div>
+
+                                <button onclick="resetMovFilters()" class="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 text-xs font-medium transition-all" title="Limpiar Filtros">
+                                    <i class="fa-solid fa-rotate-left"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Movimientos Table -->
+                    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                        <div class="p-4 md:p-5 border-b border-slate-100 flex items-center justify-between">
+                            <div>
+                                <h3 class="font-bold text-slate-900 text-sm">Historial Auditado de Movimientos</h3>
+                                <p class="text-[11px] text-slate-400" id="movCountSubtitle">Cargando movimientos...</p>
+                            </div>
+                            <button onclick="exportMovimientosCSV()" class="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all flex items-center gap-1.5">
+                                <i class="fa-solid fa-file-excel text-emerald-600"></i>
+                                <span>Descargar Excel/CSV</span>
+                            </button>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-slate-50/80 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                        <th class="p-3.5 pl-5">ID / Voucher</th>
+                                        <th class="p-3.5">Fecha & Hora</th>
+                                        <th class="p-3.5">Tipo & Categoría</th>
+                                        <th class="p-3.5">Detalle / Concepto</th>
+                                        <th class="p-3.5">Cliente / Prov.</th>
+                                        <th class="p-3.5">Cuenta / Método</th>
+                                        <th class="p-3.5">Estado</th>
+                                        <th class="p-3.5 text-right">Monto</th>
+                                        <th class="p-3.5 pr-5 text-center">Ficha</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="movimientosTableBody" class="divide-y divide-slate-100 text-xs text-slate-700 font-medium">
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+
+
+                <!-- ========================================================================= -->
+                <!-- VIEW 3: PROFORMAS Y COTIZACIONES                                         -->
+                <!-- ========================================================================= -->
+                <div id="viewProformas" class="space-y-6 hidden">
+                    
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-3xl border border-slate-200/80 shadow-2xs">
+                        <div>
+                            <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
+                                <i class="fa-solid fa-file-invoice text-brand-700"></i>
+                                <span>Gestor de Proformas y Cotizaciones</span>
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-1">Crea proformas con vigencia, imprímelas o conviértelas directamente en ventas en 1 clic.</p>
+                        </div>
+
+                        <button onclick="openNewProformaModal()" class="px-4 py-2.5 rounded-xl bg-brand-800 hover:bg-brand-900 text-white font-semibold text-xs transition-all shadow flex items-center gap-2">
+                            <i class="fa-solid fa-plus"></i>
+                            <span>Nueva Proforma</span>
+                        </button>
+                    </div>
+
+                    <!-- Proformas Grid Table -->
+                    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                        <div class="p-4 md:p-5 border-b border-slate-100 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center font-bold">
+                                    <i class="fa-solid fa-receipt"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-slate-900 text-sm">Listado de Proformas Activas</h3>
+                                    <p class="text-[11px] text-slate-400" id="proformaSubTitle">Cotizaciones emitidas</p>
+                                </div>
+                            </div>
+
+                            <input type="text" id="searchProformasInput" oninput="renderProformasTable()" placeholder="Buscar cliente o código PF..." 
+                                   class="bg-slate-100 text-xs text-slate-700 pl-3 pr-3 py-1.5 rounded-xl border border-slate-200/80 outline-none focus:border-brand-500 w-48">
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-slate-50/80 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                        <th class="p-3.5 pl-5">Código</th>
+                                        <th class="p-3.5">Cliente</th>
+                                        <th class="p-3.5">Detalle Cotización</th>
+                                        <th class="p-3.5">Validez</th>
+                                        <th class="p-3.5">Estado</th>
+                                        <th class="p-3.5 text-right">Total (S/)</th>
+                                        <th class="p-3.5 pr-5 text-center">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="proformasTableBody" class="divide-y divide-slate-100 text-xs text-slate-700 font-medium">
+                                    <!-- Dynamic Proforma rows loaded by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- ========================================================================= -->
+                <!-- VIEW 4: DEUDAS Y COBROS (CUENTAS POR COBRAR / PAGAR)                      -->
+                <!-- ========================================================================= -->
+                <div id="viewDeudas" class="space-y-6 hidden">
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="p-5 rounded-3xl bg-amber-50 border border-amber-200/80 text-amber-950 flex items-center justify-between shadow-2xs">
+                            <div>
+                                <p class="text-xs font-bold uppercase tracking-wide text-amber-800">Cuentas por Cobrar (Clientes me deben)</p>
+                                <h3 class="text-2xl font-black mt-1" id="totalPorCobrarCard">S/ 850.00</h3>
+                                <p class="text-[11px] font-medium text-amber-700 mt-1">2 clientes pendientes</p>
+                            </div>
+                            <div class="w-12 h-12 rounded-2xl bg-amber-200/60 text-amber-900 flex items-center justify-center text-xl font-bold">
+                                <i class="fa-solid fa-arrow-trend-up"></i>
+                            </div>
+                        </div>
+
+                        <div class="p-5 rounded-3xl bg-rose-50 border border-rose-200/80 text-rose-950 flex items-center justify-between shadow-2xs">
+                            <div>
+                                <p class="text-xs font-bold uppercase tracking-wide text-rose-800">Cuentas por Pagar (Debo a Proveedores)</p>
+                                <h3 class="text-2xl font-black mt-1" id="totalPorPagarCard">S/ 320.00</h3>
+                                <p class="text-[11px] font-medium text-rose-700 mt-1">1 proveedor pendiente</p>
+                            </div>
+                            <div class="w-12 h-12 rounded-2xl bg-rose-200/60 text-rose-900 flex items-center justify-center text-xl font-bold">
+                                <i class="fa-solid fa-arrow-trend-down"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                        <div class="p-4 md:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div class="flex items-center gap-3">
+                                <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold">
+                                    <i class="fa-solid fa-hand-holding-dollar"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-slate-900 text-sm">Control de Deudas y Cobranzas</h3>
+                                    <p class="text-[11px] text-slate-400">Registra abonos parciales o liquidaciones totales</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center gap-2">
+                                <select id="debtFilterType" onchange="renderDeudasTable()" class="bg-slate-100 text-xs font-semibold text-slate-700 px-3 py-1.5 rounded-xl border border-slate-200 outline-none">
+                                    <option value="ALL">Todas las cuentas</option>
+                                    <option value="COBRAR">Por Cobrar (Clientes)</option>
+                                    <option value="PAGAR">Por Pagar (Proveedores)</option>
+                                </select>
+
+                                <button onclick="openNewDebtModal()" class="px-3.5 py-1.5 rounded-xl bg-brand-800 hover:bg-brand-900 text-white font-semibold text-xs transition-all shadow flex items-center gap-1.5">
+                                    <i class="fa-solid fa-plus"></i>
+                                    <span>Nueva Cuenta</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-slate-50/80 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                        <th class="p-3.5 pl-5">Tipo</th>
+                                        <th class="p-3.5">Persona / Entidad</th>
+                                        <th class="p-3.5">Concepto</th>
+                                        <th class="p-3.5 text-right">Monto Original</th>
+                                        <th class="p-3.5 text-right">Abonado</th>
+                                        <th class="p-3.5 text-right">Saldo Pendiente</th>
+                                        <th class="p-3.5">Estado</th>
+                                        <th class="p-3.5 pr-5 text-center">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="deudasTableBody" class="divide-y divide-slate-100 text-xs text-slate-700 font-medium">
+                                    <!-- Dynamic rows loaded by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- ========================================================================= -->
+                <!-- VIEW 5: ARQUEO Y CIERRE DE CAJA                                           -->
+                <!-- ========================================================================= -->
+                <div id="viewArqueo" class="space-y-6 hidden">
+                    
+                    <div class="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-2xs space-y-6">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-2xl bg-brand-800 text-brand-200 flex items-center justify-center font-bold text-lg">
+                                    <i class="fa-solid fa-cash-register"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-slate-900 text-base">Arqueo y Cierre de Caja del Día</h3>
+                                    <p class="text-xs text-slate-400">Verifica la coincidencia entre el dinero real contado y los registros del sistema.</p>
+                                </div>
+                            </div>
+
+                            <button onclick="performCashClosing()" class="px-4 py-2.5 rounded-xl bg-brand-800 hover:bg-brand-900 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2">
+                                <i class="fa-solid fa-lock"></i>
+                                <span>Cerrar Caja de Hoy</span>
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                            <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                                <p class="text-xs font-bold text-slate-500 uppercase">1. Efectivo Físico en Caja</p>
+                                <p class="text-2xl font-black text-slate-900" id="arqueoEfectivoVal">S/ 440.00</p>
+                                <p class="text-[11px] text-slate-400">Resultado de Ingresos minus Egresos en efectivo.</p>
+                            </div>
+
+                            <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                                <p class="text-xs font-bold text-purple-700 uppercase">2. Dinero Digital (Yape / Plin / BCP)</p>
+                                <p class="text-2xl font-black text-slate-900" id="arqueoDigitalVal">S/ 700.00</p>
+                                <p class="text-[11px] text-slate-400">Transferencias conciliadas electrónicamente.</p>
+                            </div>
+
+                            <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                                <p class="text-xs font-bold text-emerald-700 uppercase">3. Total General Conciliado</p>
+                                <p class="text-2xl font-black text-emerald-700" id="arqueoTotalVal">S/ 1,140.00</p>
+                                <p class="text-[11px] text-slate-400">Balance neto de la jornada.</p>
+                            </div>
+                        </div>
+
+                        <div class="p-5 rounded-2xl bg-brand-50 border border-brand-200 space-y-3">
+                            <h4 class="font-bold text-brand-900 text-xs uppercase tracking-wide">Validación Manual de Efectivo</h4>
+                            <div class="flex flex-col sm:flex-row items-center gap-3">
+                                <div class="relative flex-1 w-full">
+                                    <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">S/</span>
+                                    <input type="number" id="physicalCountInput" placeholder="Ingresa el conteo físico en billetes/monedas" oninput="calculateCashDiscrepancy()" 
+                                           class="w-full bg-white border border-brand-300 text-xs font-bold text-slate-900 rounded-xl pl-9 pr-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500">
+                                </div>
+                                <div id="discrepancyBox" class="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-600 shrink-0">
+                                    Diferencia: S/ 0.00
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+
+    <!-- ========================================================================= -->
+    <!-- SECTION 3: MODALS (AUDIT DETAIL, NEW PROFORMA, DEBT PAYMENT, EXPORT)     -->
+    <!-- ========================================================================= -->
+    <div id="movDetailModal" class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs hidden flex items-center justify-center p-4">
+        <div class="bg-white text-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-float">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-brand-50 text-brand-800 flex items-center justify-center font-bold text-lg">
+                        <i class="fa-solid fa-receipt"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-slate-900 text-base">Ficha de Movimiento Auditor</h3>
+                        <p class="text-xs text-slate-400" id="modalMovId">OP-000</p>
+                    </div>
+                </div>
+                <button onclick="closeMovModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div id="modalMovBody" class="space-y-3 text-xs">
+                <!-- Dynamically filled by JS -->
+            </div>
+
+            <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button onclick="closeMovModal()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-all">
+                    Cerrar
+                </button>
+                <button onclick="speakCurrentModalDetail()" class="px-4 py-2 rounded-xl bg-brand-800 hover:bg-brand-900 text-white font-semibold text-xs transition-all flex items-center gap-1.5">
+                    <i class="fa-solid fa-volume-high"></i>
+                    <span>Escuchar Detalle</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <div id="newProformaModal" class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs hidden flex items-center justify-center p-4">
+        <div class="bg-white text-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
+                    <i class="fa-solid fa-file-invoice text-brand-700"></i>
+                    <span>Nueva Proforma / Cotización</span>
+                </h3>
+                <button onclick="closeProformaModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <form onsubmit="handleCreateProforma(event)" class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Nombre del Cliente</label>
+                    <input type="text" id="pfClient" required placeholder="Ej: Importadora San José" 
+                           class="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 outline-none focus:border-brand-500">
+                </div>
+
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Detalle / Servicios a Cotizar</label>
+                    <textarea id="pfDetail" required rows="3" placeholder="Ej: 5,000 folletos full color + diseño gráfico corporativo"
+                              class="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 outline-none focus:border-brand-500"></textarea>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Monto Cotizado (S/)</label>
+                        <input type="number" step="0.01" min="1" id="pfTotal" required placeholder="0.00"
+                               class="w-full bg-slate-50 border border-slate-200 text-xs font-bold rounded-xl p-2.5 outline-none focus:border-brand-500">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Vigencia (Días)</label>
+                        <select id="pfValidity" class="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 outline-none">
+                            <option value="7 días">7 días</option>
+                            <option value="15 días">15 días</option>
+                            <option value="30 días">30 días</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="pt-2 flex items-center justify-end gap-2">
+                    <button type="button" onclick="closeProformaModal()" class="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 font-semibold">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 rounded-xl bg-brand-800 hover:bg-brand-900 text-white font-bold shadow">Guardar Proforma</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <div id="newDebtModal" class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs hidden flex items-center justify-center p-4">
+        <div class="bg-white text-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
+                    <i class="fa-solid fa-hand-holding-dollar text-amber-600"></i>
+                    <span>Registrar Cuenta (Deuda / Cobro)</span>
+                </h3>
+                <button onclick="closeDebtModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <form onsubmit="handleCreateDebt(event)" class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Tipo de Cuenta</label>
+                    <select id="debtTypeInput" class="w-full bg-slate-50 border border-slate-200 text-xs font-semibold rounded-xl p-2.5 outline-none">
+                        <option value="COBRAR">Por Cobrar (Un cliente me debe dinero)</option>
+                        <option value="PAGAR">Por Pagar (Yo le debo a un proveedor)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Nombre de la Persona / Empresa</label>
+                    <input type="text" id="debtPartyInput" required placeholder="Ej: Imprenta Gutenberg" 
+                           class="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 outline-none focus:border-brand-500">
+                </div>
+
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Concepto / Motivo</label>
+                    <input type="text" id="debtConceptInput" required placeholder="Ej: Saldo de facturación de empaques" 
+                           class="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 outline-none focus:border-brand-500">
+                </div>
+
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Monto Total de la Deuda (S/)</label>
+                    <input type="number" step="0.01" min="1" id="debtAmountInput" required placeholder="0.00" 
+                           class="w-full bg-slate-50 border border-slate-200 text-xs font-bold rounded-xl p-2.5 outline-none focus:border-brand-500">
+                </div>
+
+                <div class="pt-2 flex items-center justify-end gap-2">
+                    <button type="button" onclick="closeDebtModal()" class="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 font-semibold">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 rounded-xl bg-brand-800 text-white font-bold shadow">Registrar Cuenta</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <div id="exportSummaryModal" class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs hidden flex items-center justify-center p-4">
+        <div class="bg-white text-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-brand-800 text-white flex items-center justify-center font-bold text-lg">
+                        <i class="fa-solid fa-file-export"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-slate-900 text-base">Exportar Resumen Financiero</h3>
+                        <p class="text-xs text-slate-400">Genera reportes de caja, proformas e historial</p>
+                    </div>
+                </div>
+                <button onclick="closeExportModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 font-mono text-xs text-slate-700 whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto" id="exportReportText">
+                <!-- Dynamically constructed summary report text -->
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-2">
+                <button onclick="copyReportToClipboard()" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all">
+                    <i class="fa-regular fa-copy"></i>
+                    <span>Copiar Texto</span>
+                </button>
+
+                <div class="flex items-center gap-2">
+                    <button onclick="exportMovimientosCSV()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow flex items-center gap-1.5 transition-all">
+                        <i class="fa-solid fa-file-excel"></i>
+                        <span>Descargar CSV Movimientos</span>
+                    </button>
+                    <button onclick="closeExportModal()" class="px-4 py-2 rounded-xl bg-brand-800 text-white text-xs font-semibold">
+                        Aceptar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ========================================================================= -->
+    <!-- SECTION 4: JAVASCRIPT LOGIC & VOICE SPEECH ENGINE                         -->
+    <!-- ========================================================================= -->
+    <script>
+        // API Configuration
+        const apiKey = "";
+        const geminiTtsUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+        const geminiTextUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+        // Datastores
+        let transactions = [
+            { id: 101, voucher: "YP-948102", type: "Ingreso", amount: 500.00, category: "Ventas", party: "Cliente Juan Pérez", concept: "Millar de volantes A6 couche 150g", payment: "Yape/Plin", status: "Completado", date: "Hoy 09:15 AM", user: "María López (Admin)", notes: "Transferido a la cuenta Yape de empresa." },
+            { id: 102, voucher: "TR-204918", type: "Egreso", amount: 350.00, category: "Materiales", party: "Proveedor Pacheco S.A.C.", concept: "Compra de cartulina e insumos de imprenta", payment: "Transferencia", status: "Completado", date: "Hoy 10:30 AM", user: "María López (Admin)", notes: "Factura F001-8392 adjunta." },
+            { id: 103, voucher: "EF-003921", type: "Ingreso", amount: 240.00, category: "Ventas", party: "Cliente Cristina", concept: "1,000 afiches A3 full color", payment: "Efectivo", status: "Completado", date: "Hoy 11:45 AM", user: "María López (Admin)", notes: "Entregado en mostrador principal." },
+            { id: 104, voucher: "YP-382019", type: "Ingreso", amount: 400.00, category: "Servicios", party: "Imprenta Express", concept: "Anillado y empastado de tomos", payment: "Yape/Plin", status: "Completado", date: "Hoy 01:20 PM", user: "María López (Admin)", notes: "Pago verificado en app Yape." },
+            { id: 105, voucher: "EF-004011", type: "Egreso", amount: 210.00, category: "Servicios Básicos", party: "Luz del Sur / Enel", concept: "Pago mensual recibo de luz local", payment: "Efectivo", status: "Completado", date: "Hoy 02:00 PM", user: "María López (Admin)", notes: "Pagado con efectivo de caja chica." }
+        ];
+
+        let proformas = [
+            { id: 'PF-1001', client: "Importadora San José", detail: "5,000 Folletos couche + Gigantografía 3x2m", total: 680.00, validity: "15 días", status: "Vigente", date: "22/08/2026" },
+            { id: 'PF-1002', client: "Corporación Vega", detail: "Diseno gráfico y manual de marca institucional", total: 450.00, validity: "7 días", status: "Vigente", date: "21/08/2026" },
+            { id: 'PF-1003', client: "Restaurante El Sabor", detail: "10 Cartas menú acrílicas e impresiones en vinil", total: 290.00, validity: "30 días", status: "Vigente", date: "20/08/2026" }
+        ];
+
+        let deudas = [
+            { id: 'D-1', type: 'COBRAR', party: 'Constructora del Centro', concept: 'Saldo pendiente por impresión de planos', total: 600.00, abonado: 200.00, status: 'Pendiente' },
+            { id: 'D-2', type: 'COBRAR', party: 'Librería escolar Luz', concept: 'Afiches de campaña escolar', total: 450.00, abonado: 0.00, status: 'Pendiente' },
+            { id: 'D-3', type: 'PAGAR', party: 'Papelera Lima S.A.', concept: 'Insumos de papel bond 75g', total: 320.00, abonado: 0.00, status: 'Pendiente' }
+        ];
+
+        const topicKnowledge = {
+            que_es: "Tairos punto erese es un sistema comercial con voz que mantiene tu registro diario, proformas y deudas sincronizados en tiempo real.",
+            movimientos: "En Movimientos ingresan todas las operaciones auditables con trazabilidad de Yape, BCP, efectivo y estados de pago.",
+            proformas: "Puedes crear cotizaciones para clientes y con un solo clic convertirlas en ingresos registrados en tu diario contable.",
+            deudas: "El módulo de deudas gestiona cuentas por cobrar a clientes y por pagar a proveedores con registro de abonos parciales.",
+            dictado: "Presiona el micrófono y di por ejemplo: Ingreso 500 soles cliente Juan por volantes en Yape. El sistema autocompletará el formulario."
+        };
+
+        let isSpeaking = false;
+        let activeTab = 'registro';
+        let currentSelectedMov = null;
+        let brainRecognition = null;
+        let mainRecognition = null;
+
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            
+            brainRecognition = new SpeechRecognition();
+            brainRecognition.continuous = false;
+            brainRecognition.lang = 'es-PE';
+            brainRecognition.onresult = (e) => {
+                const text = e.results[0][0].transcript;
+                document.getElementById('brainQuestionInput').value = text;
+                stopBrainMic();
+                processCustomBrainQuestion(text);
+            };
+            brainRecognition.onerror = () => stopBrainMic();
+            brainRecognition.onend = () => stopBrainMic();
+
+            mainRecognition = new SpeechRecognition();
+            mainRecognition.continuous = false;
+            mainRecognition.lang = 'es-PE';
+            mainRecognition.onresult = (e) => {
+                const text = e.results[0][0].transcript;
+                stopMainMic();
+                parseVoiceToLedgerForm(text);
+            };
+            mainRecognition.onerror = () => stopMainMic();
+            mainRecognition.onend = () => stopMainMic();
+        }
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `px-4 py-3 rounded-2xl shadow-xl border text-xs font-semibold flex items-center gap-2.5 transition-all transform translate-y-2 opacity-0 pointer-events-auto ${
+                type === 'success' ? 'bg-slate-900 text-emerald-300 border-emerald-500/40' : 'bg-slate-900 text-rose-300 border-rose-500/40'
+            }`;
+            toast.innerHTML = `
+                <i class="fa-solid ${type === 'success' ? 'fa-circle-check text-emerald-400' : 'fa-circle-exclamation text-rose-400'} text-sm"></i>
+                <span>${message}</span>
+            `;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 10);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', '-translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        function switchTab(tab) {
+            activeTab = tab;
+            const views = ['viewRegistro', 'viewMovimientos', 'viewProformas', 'viewDeudas', 'viewArqueo'];
+            views.forEach(v => {
+                const el = document.getElementById(v);
+                if (el) el.classList.add('hidden');
+            });
+
+            const navs = ['registro', 'movimientos', 'proformas', 'deudas', 'arqueo'];
+            navs.forEach(n => {
+                const btn = document.getElementById(`nav-tab-${n}`);
+                if (btn) {
+                    btn.className = "w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 font-medium text-sm transition-all text-left";
+                }
+            });
+
+            const activeBtn = document.getElementById(`nav-tab-${tab}`);
+            if (activeBtn) {
+                activeBtn.className = "w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-brand-50 text-brand-800 font-semibold text-sm transition-all border border-brand-200/50 shadow-2xs text-left";
+            }
+
+            const title = document.getElementById('workspaceTitle');
+            const sub = document.getElementById('workspaceSubtitle');
+
+            if (tab === 'registro') {
+                document.getElementById('viewRegistro').classList.remove('hidden');
+                title.innerText = "Libro Contable Diario";
+                sub.innerText = "Registro directo de ingresos y egresos en tiempo real.";
+                renderLedger();
+            } else if (tab === 'movimientos') {
+                document.getElementById('viewMovimientos').classList.remove('hidden');
+                title.innerText = "Historial & Control de Movimientos";
+                sub.innerText = "Auditoría, métodos de pago, vouchers y flujo de caja.";
+                renderMovimientosTable();
+            } else if (tab === 'proformas') {
+                document.getElementById('viewProformas').classList.remove('hidden');
+                title.innerText = "Proformas y Cotizaciones";
+                sub.innerText = "Emisión de presupuestos a clientes y conversión en ventas.";
+                renderProformasTable();
+            } else if (tab === 'deudas') {
+                document.getElementById('viewDeudas').classList.remove('hidden');
+                title.innerText = "Cuentas por Cobrar y por Pagar";
+                sub.innerText = "Control de deudas de clientes, cuentas a proveedores y abonos.";
+                renderDeudasTable();
+            } else if (tab === 'arqueo') {
+                document.getElementById('viewArqueo').classList.remove('hidden');
+                title.innerText = "Arqueo de Caja";
+                sub.innerText = "Cuadre físico de billetes/monedas vs saldo del sistema.";
+                updateArqueoView();
+            }
+        }
+
+        function renderLedger() {
+            const tbody = document.getElementById('ledgerTableBody');
+            const searchVal = document.getElementById('searchLedgerInput').value.toLowerCase().trim();
+            const filterType = document.getElementById('filterTypeSelect').value;
+
+            tbody.innerHTML = '';
+
+            let filtered = transactions.filter(t => {
+                const matchesSearch = t.concept.toLowerCase().includes(searchVal) || 
+                                      t.party.toLowerCase().includes(searchVal) ||
+                                      t.category.toLowerCase().includes(searchVal);
+                const matchesType = filterType === 'ALL' || t.type === filterType;
+                return matchesSearch && matchesType;
+            });
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="text-center py-8 text-slate-400 italic">
+                            No hay asientos contables registrados.
+                        </td>
+                    </tr>
+                `;
+            } else {
+                filtered.forEach(t => {
+                    const isIngreso = t.type === 'Ingreso';
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-slate-50/80 transition-colors";
+                    tr.innerHTML = `
+                        <td class="p-3.5 pl-5">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full ${isIngreso ? 'bg-emerald-500' : 'bg-rose-500'}"></span>
+                                <span class="font-bold text-[11px] ${isIngreso ? 'text-emerald-700' : 'text-rose-600'} uppercase">${t.type}</span>
+                            </div>
+                            <p class="text-[10px] text-slate-400 mt-0.5">${t.date}</p>
+                        </td>
+                        <td class="p-3.5 font-semibold text-slate-800">${t.concept}</td>
+                        <td class="p-3.5 text-slate-600">${t.party || '-'}</td>
+                        <td class="p-3.5">
+                            <span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                                ${t.category}
+                            </span>
+                        </td>
+                        <td class="p-3.5 text-slate-500 text-[11px]">${t.payment}</td>
+                        <td class="p-3.5 text-right font-bold ${isIngreso ? 'text-emerald-700' : 'text-slate-900'}">
+                            ${isIngreso ? '+' : '-'} S/ ${t.amount.toFixed(2)}
+                        </td>
+                        <td class="p-3.5 pr-5 text-center">
+                            <button onclick="deleteTransaction(${t.id})" class="text-slate-400 hover:text-rose-600 transition-colors p-1" title="Eliminar Asiento">
+                                <i class="fa-solid fa-trash-can text-xs"></i>
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+
+            document.getElementById('ledgerCountSub').innerText = `Mostrando ${filtered.length} asientos`;
+            document.getElementById('sidebarBadgeMovs').innerText = transactions.length;
+
+            updateOverallStats();
+        }
+
+        function renderMovimientosTable() {
+            const tbody = document.getElementById('movimientosTableBody');
+            const searchVal = document.getElementById('movSearchInput').value.toLowerCase().trim();
+            const filterAccount = document.getElementById('movFilterAccount').value;
+            const filterStatus = document.getElementById('movFilterStatus').value;
+
+            tbody.innerHTML = '';
+
+            let filtered = transactions.filter(t => {
+                const matchesSearch = t.concept.toLowerCase().includes(searchVal) || 
+                                      t.party.toLowerCase().includes(searchVal) ||
+                                      (t.voucher && t.voucher.toLowerCase().includes(searchVal)) ||
+                                      t.payment.toLowerCase().includes(searchVal);
+
+                const matchesAccount = filterAccount === 'ALL' || t.payment === filterAccount;
+                const matchesStatus = filterStatus === 'ALL' || t.status === filterStatus;
+
+                return matchesSearch && matchesAccount && matchesStatus;
+            });
+
+            document.getElementById('movCountSubtitle').innerText = `Mostrando ${filtered.length} de ${transactions.length} movimientos auditados`;
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="9" class="text-center py-10 text-slate-400 italic">
+                            No se encontraron movimientos con los filtros aplicados.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            filtered.forEach(t => {
+                const isIngreso = t.type === 'Ingreso';
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50/80 transition-colors";
+
+                let statusBadge = t.status === 'Completado' 
+                    ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">Completado</span>`
+                    : `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">Pendiente</span>`;
+
+                tr.innerHTML = `
+                    <td class="p-3.5 pl-5">
+                        <span class="font-mono font-bold text-[11px] text-brand-800">${t.voucher || 'OP-' + t.id}</span>
+                    </td>
+                    <td class="p-3.5 text-slate-500 text-[11px]">${t.date}</td>
+                    <td class="p-3.5">
+                        <span class="font-bold text-[11px] ${isIngreso ? 'text-emerald-700' : 'text-rose-600'} uppercase">${t.type}</span>
+                        <span class="text-[10px] text-slate-400 block">${t.category}</span>
+                    </td>
+                    <td class="p-3.5 font-semibold text-slate-800">${t.concept}</td>
+                    <td class="p-3.5 text-slate-600">${t.party}</td>
+                    <td class="p-3.5">
+                        <span class="px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                            ${t.payment}
+                        </span>
+                    </td>
+                    <td class="p-3.5">${statusBadge}</td>
+                    <td class="p-3.5 text-right font-bold ${isIngreso ? 'text-emerald-700' : 'text-slate-900'}">
+                        ${isIngreso ? '+' : '-'} S/ ${t.amount.toFixed(2)}
+                    </td>
+                    <td class="p-3.5 pr-5 text-center">
+                        <button onclick="openMovModal(${t.id})" class="text-brand-700 hover:text-brand-900 bg-brand-50 hover:bg-brand-100 p-1.5 rounded-lg transition-colors" title="Ver Ficha Auditada">
+                            <i class="fa-solid fa-eye text-xs"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderProformasTable() {
+            const tbody = document.getElementById('proformasTableBody');
+            const search = document.getElementById('searchProformasInput').value.toLowerCase().trim();
+
+            tbody.innerHTML = '';
+
+            let filtered = proformas.filter(p => p.client.toLowerCase().includes(search) || p.id.toLowerCase().includes(search) || p.detail.toLowerCase().includes(search));
+
+            document.getElementById('proformaSubTitle').innerText = `${filtered.length} cotizaciones registradas`;
+            document.getElementById('sidebarBadgeProformas').innerText = proformas.length;
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-slate-400 italic">No hay proformas registradas.</td></tr>`;
+                return;
+            }
+
+            filtered.forEach(p => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50/80 transition-colors";
+                tr.innerHTML = `
+                    <td class="p-3.5 pl-5 font-mono font-bold text-brand-800">${p.id}</td>
+                    <td class="p-3.5 font-bold text-slate-900">${p.client}</td>
+                    <td class="p-3.5 text-slate-700 max-w-xs truncate">${p.detail}</td>
+                    <td class="p-3.5 text-slate-500 text-[11px]">${p.validity}</td>
+                    <td class="p-3.5">
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${p.status === 'Convertida' ? 'bg-emerald-100 text-emerald-800' : 'bg-purple-100 text-purple-800'}">
+                            ${p.status}
+                        </span>
+                    </td>
+                    <td class="p-3.5 text-right font-extrabold text-slate-900">S/ ${p.total.toFixed(2)}</td>
+                    <td class="p-3.5 pr-5 text-center flex items-center justify-center gap-1.5">
+                        ${p.status !== 'Convertida' ? `
+                            <button onclick="convertProformaToSale('${p.id}')" class="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[11px] transition-colors flex items-center gap-1">
+                                <i class="fa-solid fa-cart-arrow-down"></i>
+                                <span>Cobrar</span>
+                            </button>
+                        ` : '<span class="text-[10px] text-slate-400 font-semibold">Procesada</span>'}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function openNewProformaModal() {
+            document.getElementById('newProformaModal').classList.remove('hidden');
+        }
+
+        function closeProformaModal() {
+            document.getElementById('newProformaModal').classList.add('hidden');
+        }
+
+        function handleCreateProforma(e) {
+            e.preventDefault();
+            const client = document.getElementById('pfClient').value.trim();
+            const detail = document.getElementById('pfDetail').value.trim();
+            const total = parseFloat(document.getElementById('pfTotal').value) || 0;
+            const validity = document.getElementById('pfValidity').value;
+
+            const newPf = {
+                id: `PF-${Math.floor(1000 + Math.random() * 9000)}`,
+                client,
+                detail,
+                total,
+                validity,
+                status: 'Vigente',
+                date: 'Hoy'
+            };
+
+            proformas.unshift(newPf);
+            closeProformaModal();
+            renderProformasTable();
+            updateOverallStats();
+            showToast(`Proforma ${newPf.id} generada exitosamente`);
+
+            document.getElementById('pfClient').value = '';
+            document.getElementById('pfDetail').value = '';
+            document.getElementById('pfTotal').value = '';
+        }
+
+        function convertProformaToSale(pfId) {
+            const pf = proformas.find(p => p.id === pfId);
+            if (!pf) return;
+
+            pf.status = 'Convertida';
+
+            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const newTx = {
+                id: Date.now(),
+                voucher: `PF-COBRO-${pf.id}`,
+                type: "Ingreso",
+                amount: pf.total,
+                category: "Ventas",
+                party: pf.client,
+                concept: `Cobro de Proforma ${pf.id}: ${pf.detail}`,
+                payment: "Yape/Plin",
+                status: "Completado",
+                date: `Hoy ${now}`,
+                user: "María López (Admin)",
+                notes: `Convertida desde la proforma ${pf.id}.`
+            };
+
+            transactions.unshift(newTx);
+            renderProformasTable();
+            renderLedger();
+            showToast(`Proforma ${pf.id} cobrada y registrada en el libro contable`);
+        }
+
+        function renderDeudasTable() {
+            const tbody = document.getElementById('deudasTableBody');
+            const filterType = document.getElementById('debtFilterType').value;
+
+            tbody.innerHTML = '';
+
+            let filtered = deudas.filter(d => filterType === 'ALL' || d.type === filterType);
+
+            let porCobrarTotal = 0;
+            let porPagarTotal = 0;
+
+            deudas.forEach(d => {
+                const saldo = d.total - d.abonado;
+                if (d.type === 'COBRAR') porCobrarTotal += saldo;
+                else porPagarTotal += saldo;
+            });
+
+            document.getElementById('totalPorCobrarCard').innerText = `S/ ${porCobrarTotal.toFixed(2)}`;
+            document.getElementById('totalPorPagarCard').innerText = `S/ ${porPagarTotal.toFixed(2)}`;
+            document.getElementById('sidebarBadgeDeudas').innerText = deudas.filter(d => (d.total - d.abonado) > 0).length;
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-400 italic">No hay cuentas pendientes.</td></tr>`;
+                return;
+            }
+
+            filtered.forEach(d => {
+                const saldo = d.total - d.abonado;
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50/80 transition-colors";
+
+                const isCobrar = d.type === 'COBRAR';
+
+                tr.innerHTML = `
+                    <td class="p-3.5 pl-5">
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${isCobrar ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}">
+                            ${isCobrar ? 'POR COBRAR' : 'POR PAGAR'}
+                        </span>
+                    </td>
+                    <td class="p-3.5 font-bold text-slate-900">${d.party}</td>
+                    <td class="p-3.5 text-slate-700">${d.concept}</td>
+                    <td class="p-3.5 text-right font-medium text-slate-600">S/ ${d.total.toFixed(2)}</td>
+                    <td class="p-3.5 text-right font-medium text-emerald-700">S/ ${d.abonado.toFixed(2)}</td>
+                    <td class="p-3.5 text-right font-extrabold ${isCobrar ? 'text-amber-800' : 'text-rose-700'}">S/ ${saldo.toFixed(2)}</td>
+                    <td class="p-3.5">
+                        <span class="px-2 py-0.5 rounded-md text-[10px] font-semibold ${saldo <= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}">
+                            ${saldo <= 0 ? 'CANCELADO' : 'PENDIENTE'}
+                        </span>
+                    </td>
+                    <td class="p-3.5 pr-5 text-center">
+                        ${saldo > 0 ? `
+                            <button onclick="registerDebtPayment('${d.id}')" class="px-2.5 py-1.5 rounded-lg bg-brand-800 hover:bg-brand-900 text-white font-bold text-[11px] transition-colors flex items-center gap-1 mx-auto">
+                                <i class="fa-solid fa-hand-holding-dollar"></i>
+                                <span>Abonar</span>
+                            </button>
+                        ` : '<span class="text-[10px] text-emerald-600 font-bold">Liquidado</span>'}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function openNewDebtModal() {
+            document.getElementById('newDebtModal').classList.remove('hidden');
+        }
+
+        function closeDebtModal() {
+            document.getElementById('newDebtModal').classList.add('hidden');
+        }
+
+        function handleCreateDebt(e) {
+            e.preventDefault();
+            const type = document.getElementById('debtTypeInput').value;
+            const party = document.getElementById('debtPartyInput').value.trim();
+            const concept = document.getElementById('debtConceptInput').value.trim();
+            const total = parseFloat(document.getElementById('debtAmountInput').value) || 0;
+
+            const newDebt = {
+                id: `D-${Date.now()}`,
+                type,
+                party,
+                concept,
+                total,
+                abonado: 0,
+                status: 'Pendiente'
+            };
+
+            deudas.unshift(newDebt);
+            closeDebtModal();
+            renderDeudasTable();
+            updateOverallStats();
+            showToast(`Cuenta registrada para ${party}`);
+
+            document.getElementById('debtPartyInput').value = '';
+            document.getElementById('debtConceptInput').value = '';
+            document.getElementById('debtAmountInput').value = '';
+        }
+
+        function registerDebtPayment(debtId) {
+            const item = deudas.find(d => d.id === debtId);
+            if (!item) return;
+
+            const saldo = item.total - item.abonado;
+            const abonadoMonto = Math.min(saldo, saldo); // Full payment liquidator for fast action
+
+            item.abonado += abonadoMonto;
+            
+            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const isCobrar = item.type === 'COBRAR';
+
+            const newTx = {
+                id: Date.now(),
+                voucher: `ABONO-${item.id}`,
+                type: isCobrar ? "Ingreso" : "Egreso",
+                amount: abonadoMonto,
+                category: isCobrar ? "Ventas" : "Materiales",
+                party: item.party,
+                concept: `Abono/Cobro de deuda: ${item.concept}`,
+                payment: "Efectivo",
+                status: "Completado",
+                date: `Hoy ${now}`,
+                user: "María López (Admin)",
+                notes: `Abono de cuenta ${item.id}.`
+            };
+
+            transactions.unshift(newTx);
+            renderDeudasTable();
+            renderLedger();
+            showToast(`Abono de S/ ${abonadoMonto.toFixed(2)} procesado correctamente`);
+        }
+
+        function updateArqueoView() {
+            let ef = 0, dig = 0;
+            transactions.forEach(t => {
+                if (t.type === 'Ingreso') {
+                    if (t.payment === 'Efectivo') ef += t.amount;
+                    else dig += t.amount;
+                } else {
+                    if (t.payment === 'Efectivo') ef -= t.amount;
+                    else dig -= t.amount;
+                }
+            });
+
+            document.getElementById('arqueoEfectivoVal').innerText = `S/ ${ef.toFixed(2)}`;
+            document.getElementById('arqueoDigitalVal').innerText = `S/ ${dig.toFixed(2)}`;
+            document.getElementById('arqueoTotalVal').innerText = `S/ ${(ef + dig).toFixed(2)}`;
+        }
+
+        function calculateCashDiscrepancy() {
+            const counted = parseFloat(document.getElementById('physicalCountInput').value) || 0;
+            let ef = 0;
+            transactions.forEach(t => {
+                if (t.payment === 'Efectivo') {
+                    ef += t.type === 'Ingreso' ? t.amount : -t.amount;
+                }
+            });
+
+            const diff = counted - ef;
+            const box = document.getElementById('discrepancyBox');
+            if (diff === 0) {
+                box.className = "px-4 py-2.5 rounded-xl bg-emerald-100 text-emerald-800 text-xs font-bold shrink-0";
+                box.innerText = "Diferencia: S/ 0.00 (Caja Cuadrada Perfecta)";
+            } else if (diff > 0) {
+                box.className = "px-4 py-2.5 rounded-xl bg-blue-100 text-blue-800 text-xs font-bold shrink-0";
+                box.innerText = `Sobrante: +S/ ${diff.toFixed(2)}`;
+            } else {
+                box.className = "px-4 py-2.5 rounded-xl bg-rose-100 text-rose-800 text-xs font-bold shrink-0";
+                box.innerText = `Faltante: -S/ ${Math.abs(diff).toFixed(2)}`;
+            }
+        }
+
+        function performCashClosing() {
+            showToast("Cierre de caja generado y respaldado en la bitácora.");
+        }
+
+        function openExportSummaryModal() {
+            let totalIn = 0, totalOut = 0;
+            transactions.forEach(t => t.type === 'Ingreso' ? totalIn += t.amount : totalOut += t.amount);
+            
+            let cobrosPending = 0;
+            deudas.filter(d => d.type === 'COBRAR').forEach(d => cobrosPending += (d.total - d.abonado));
+
+            const report = `===================================================
+TAIROS.RC — RESUMEN EJECUTIVO FINANCIERO
+Fecha de Emisión: 22 de Agosto, 2026
+===================================================
+
+1. MOVIMIENTOS Y FLUIDEZ DE CAJA:
+   - Total Ingresos: S/ ${totalIn.toFixed(2)}
+   - Total Egresos:  S/ ${totalOut.toFixed(2)}
+   - BALANCE NETO:   S/ ${(totalIn - totalOut).toFixed(2)}
+
+2. CUENTAS Y COBRANZAS PENDIENTES:
+   - Cuentas por Cobrar a Clientes: S/ ${cobrosPending.toFixed(2)}
+   - Proformas Cotizadas Activas:   ${proformas.length} cotizaciones
+
+3. TOTAL DE ASIENTOS AUDITADOS:
+   - Operaciones registradas hoy:   ${transactions.length} asientos
+
+===================================================
+Documento generado automáticamente por Tairos.rc
+===================================================`;
+
+            document.getElementById('exportReportText').innerText = report;
+            document.getElementById('exportSummaryModal').classList.remove('hidden');
+        }
+
+        function closeExportModal() {
+            document.getElementById('exportSummaryModal').classList.add('hidden');
+        }
+
+        function copyReportToClipboard() {
+            const text = document.getElementById('exportReportText').innerText;
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            showToast("Resumen copiado al portapapeles");
+        }
+
+        function updateOverallStats() {
+            let totalIngresos = 0;
+            let totalEgresos = 0;
+
+            transactions.forEach(t => {
+                if (t.status === 'Anulado') return;
+                if (t.type === 'Ingreso') totalIngresos += t.amount;
+                else totalEgresos += t.amount;
+            });
+
+            let porCobrar = 0;
+            deudas.filter(d => d.type === 'COBRAR').forEach(d => porCobrar += (d.total - d.abonado));
+
+            let pfSum = 0;
+            proformas.filter(p => p.status === 'Vigente').forEach(p => pfSum += p.total);
+
+            const netBalance = totalIngresos - totalEgresos;
+
+            document.getElementById('statIngresos').innerText = `S/ ${totalIngresos.toFixed(2)}`;
+            document.getElementById('statEgresos').innerText = `S/ ${totalEgresos.toFixed(2)}`;
+            document.getElementById('statPorCobrar').innerText = `S/ ${porCobrar.toFixed(2)}`;
+            document.getElementById('statProformas').innerText = `S/ ${pfSum.toFixed(2)}`;
+            document.getElementById('statProformasCount').innerText = `${proformas.filter(p => p.status === 'Vigente').length} vigentes`;
+            document.getElementById('totalBalanceHeader').innerText = `S/ ${netBalance >= 0 ? '+' : ''}${netBalance.toFixed(2)}`;
+        }
+
+        function handleAddTransaction(e) {
+            e.preventDefault();
+            const typeEl = document.querySelector('input[name="txType"]:checked');
+            const amountEl = document.getElementById('txAmount');
+            const categoryEl = document.getElementById('txCategory');
+            const paymentEl = document.getElementById('txPayment');
+            const partyEl = document.getElementById('txParty');
+            const voucherEl = document.getElementById('txVoucher');
+            const conceptEl = document.getElementById('txConcept');
+
+            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const newTx = {
+                id: Date.now(),
+                voucher: voucherEl.value.trim() || `OP-${Math.floor(100000 + Math.random() * 900000)}`,
+                type: typeEl ? typeEl.value : 'Ingreso',
+                amount: parseFloat(amountEl.value) || 0,
+                category: categoryEl.value,
+                payment: paymentEl.value,
+                party: partyEl.value.trim() || 'General',
+                concept: conceptEl.value.trim(),
+                status: 'Completado',
+                date: `Hoy ${now}`,
+                user: "María López (Admin)",
+                notes: "Ingreso registrado vía formulario rápido Tairos."
+            };
+
+            transactions.unshift(newTx);
+            renderLedger();
+            showToast("Asiento contable guardado exitosamente");
+
+            amountEl.value = '';
+            partyEl.value = '';
+            voucherEl.value = '';
+            conceptEl.value = '';
+        }
+
+        function deleteTransaction(id) {
+            transactions = transactions.filter(t => t.id !== id);
+            renderLedger();
+            showToast("Asiento eliminado del libro contable");
+        }
+
+        function resetMovFilters() {
+            document.getElementById('movFilterAccount').value = 'ALL';
+            document.getElementById('movFilterStatus').value = 'ALL';
+            document.getElementById('movSearchInput').value = '';
+            renderMovimientosTable();
+        }
+
+        function handleGlobalSearch(query) {
+            const lower = query.toLowerCase();
+            if (activeTab === 'registro') {
+                document.getElementById('searchLedgerInput').value = lower;
+                renderLedger();
+            } else if (activeTab === 'movimientos') {
+                document.getElementById('movSearchInput').value = lower;
+                renderMovimientosTable();
+            } else if (activeTab === 'proformas') {
+                document.getElementById('searchProformasInput').value = lower;
+                renderProformasTable();
+            }
+        }
+
+        function openMovModal(id) {
+            const item = transactions.find(t => t.id === id);
+            if (!item) return;
+            currentSelectedMov = item;
+
+            document.getElementById('modalMovId').innerText = `Código: ${item.voucher || 'OP-' + item.id}`;
+            const body = document.getElementById('modalMovBody');
+
+            body.innerHTML = `
+                <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+                    <div>
+                        <p class="text-slate-400 font-medium">Tipo de Operación</p>
+                        <p class="font-bold text-slate-800">${item.type} (${item.category})</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-400 font-medium">Monto Procesado</p>
+                        <p class="font-bold text-base ${item.type === 'Ingreso' ? 'text-emerald-700' : 'text-rose-600'}">
+                            S/ ${item.amount.toFixed(2)}
+                        </p>
+                    </div>
+                    <div>
+                        <p class="text-slate-400 font-medium">Método / Cuenta</p>
+                        <p class="font-semibold text-slate-800">${item.payment}</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-400 font-medium">Estado Auditado</p>
+                        <p class="font-semibold text-emerald-700">${item.status}</p>
+                    </div>
+                </div>
+
+                <div class="space-y-1.5 pt-1">
+                    <p class="text-slate-400 font-medium">Cliente / Entidad Comercial:</p>
+                    <p class="font-bold text-slate-800 bg-slate-100 p-2 rounded-xl">${item.party}</p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <p class="text-slate-400 font-medium">Concepto / Glosa Detallada:</p>
+                    <p class="font-medium text-slate-800 bg-slate-100 p-2 rounded-xl">${item.concept}</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-500 pt-1">
+                    <div><strong>Fecha:</strong> ${item.date}</div>
+                    <div><strong>Registrado por:</strong> ${item.user}</div>
+                </div>
+            `;
+
+            document.getElementById('movDetailModal').classList.remove('hidden');
+        }
+
+        function closeMovModal() {
+            document.getElementById('movDetailModal').classList.add('hidden');
+        }
+
+        function speakCurrentModalDetail() {
+            if (!currentSelectedMov) return;
+            const text = `Movimiento ${currentSelectedMov.voucher}. ${currentSelectedMov.type} de ${currentSelectedMov.amount} soles por concepto de ${currentSelectedMov.concept}. Método: ${currentSelectedMov.payment}.`;
+            speakText(text);
+        }
+
+        function exportMovimientosCSV() {
+            let csv = "Voucher,Fecha,Tipo,Categoria,Concepto,Cliente,Metodo,Estado,Monto\n";
+            transactions.forEach(t => {
+                csv += `"${t.voucher}","${t.date}","${t.type}","${t.category}","${t.concept}","${t.party}","${t.payment}","${t.status}",${t.amount}\n`;
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.setAttribute('href', url);
+            a.setAttribute('download', `movimientos_tairos_${Date.now()}.csv`);
+            a.click();
+            showToast("Descargando archivo CSV...");
+        }
+
+        function parseVoiceToLedgerForm(text) {
+            const lower = text.toLowerCase();
+            if (lower.includes("egreso") || lower.includes("gasto") || lower.includes("compra")) {
+                document.querySelectorAll('input[name="txType"]')[1].checked = true;
+            } else {
+                document.querySelectorAll('input[name="txType"]')[0].checked = true;
+            }
+
+            const matchAmount = text.match(/(\d+[\.,]?\d*)/);
+            if (matchAmount) {
+                document.getElementById('txAmount').value = matchAmount[0].replace(',', '.');
+            }
+
+            if (lower.includes("yape") || lower.includes("plin")) {
+                document.getElementById('txPayment').value = "Yape/Plin";
+            } else if (lower.includes("efectivo")) {
+                document.getElementById('txPayment').value = "Efectivo";
+            } else if (lower.includes("transferencia") || lower.includes("banco")) {
+                document.getElementById('txPayment').value = "Transferencia";
+            }
+
+            document.getElementById('txConcept').value = text;
+            showToast("Dictado capturado en el formulario");
+        }
+
+
+        const canvas = document.getElementById('brainCanvas');
+        const ctx = canvas.getContext('2d');
+        let nodes = [];
+        const numNodes = 32;
+
+        function initBrainCanvas() {
+            nodes = [];
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            for (let i = 0; i < numNodes; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 35 + Math.random() * 85;
+                nodes.push({
+                    x: centerX + Math.cos(angle) * radius,
+                    y: centerY + Math.sin(angle) * radius,
+                    vx: (Math.random() - 0.5) * 0.8,
+                    vy: (Math.random() - 0.5) * 0.8,
+                    size: Math.random() * 3.5 + 2
+                });
+            }
+        }
+
+        function animateBrain() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            const pulse = isSpeaking ? (Math.sin(Date.now() / 120) * 12) : (Math.sin(Date.now() / 400) * 4);
+            const grad = ctx.createRadialGradient(centerX, centerY, 10, centerX, centerY, 100 + pulse);
+            grad.addColorStop(0, 'rgba(45, 212, 191, 0.6)');
+            grad.addColorStop(0.5, 'rgba(13, 148, 136, 0.25)');
+            grad.addColorStop(1, 'rgba(2, 44, 40, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 110 + pulse, 0, Math.PI * 2);
+            ctx.fill();
+
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const dx = nodes[i].x - nodes[j].x;
+                    const dy = nodes[i].y - nodes[j].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 75) {
+                        ctx.strokeStyle = `rgba(45, 212, 191, ${1 - dist / 75})`;
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(nodes[i].x, nodes[i].y);
+                        ctx.lineTo(nodes[j].x, nodes[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            for (let n of nodes) {
+                n.x += n.vx * (isSpeaking ? 1.8 : 0.8);
+                n.y += n.vy * (isSpeaking ? 1.8 : 0.8);
+
+                const dx = n.x - centerX;
+                const dy = n.y - centerY;
+                if (Math.sqrt(dx * dx + dy * dy) > 105) {
+                    n.vx *= -1;
+                    n.vy *= -1;
+                }
+
+                ctx.fillStyle = isSpeaking ? '#99f6e4' : '#2dd4bf';
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, n.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            requestAnimationFrame(animateBrain);
+        }
+
+        initBrainCanvas();
+        animateBrain();
+
+        async function speakText(text) {
+            updateBrainSubtitle(text);
+            isSpeaking = true;
+            document.getElementById('audioWaveRing').classList.add('ring-4', 'ring-brand-400', 'scale-110');
+
+            try {
+                const payload = {
+                    contents: [{ parts: [{ text: `Di en español de manera amigable y profesional: ${text}` }] }],
+                    generationConfig: {
+                        responseModalities: ["AUDIO"],
+                        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } }
+                    }
+                };
+
+                const res = await fetch(geminiTtsUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+                const inlinePart = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+
+                if (inlinePart && inlinePart.data) {
+                    const sampleRate = parseInt(inlinePart.mimeType.match(/rate=(\d+)/)?.[1] || "24000", 10);
+                    const pcm16Data = base64ToInt16Array(inlinePart.data);
+                    const wavBlob = pcmToWav(pcm16Data, sampleRate);
+                    const audioUrl = URL.createObjectURL(wavBlob);
+                    
+                    const audio = new Audio(audioUrl);
+                    audio.onended = () => stopSpeaking();
+                    await audio.play();
+                    return;
+                }
+            } catch (err) {}
+
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'es-PE';
+                utterance.rate = 1.05;
+                utterance.onend = () => stopSpeaking();
+                utterance.onerror = () => stopSpeaking();
+                window.speechSynthesis.speak(utterance);
+            } else {
+                setTimeout(() => stopSpeaking(), 4000);
+            }
+        }
+
+        function stopSpeaking() {
+            isSpeaking = false;
+            document.getElementById('audioWaveRing').classList.remove('ring-4', 'ring-brand-400', 'scale-110');
+        }
+
+        function updateBrainSubtitle(text) {
+            const speechBox = document.getElementById('brainSpeechText');
+            if (speechBox) speechBox.innerText = `« ${text} »`;
+        }
+
+        function base64ToInt16Array(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+            return new Int16Array(bytes.buffer);
+        }
+
+        function pcmToWav(pcm16, sampleRate) {
+            const buffer = new ArrayBuffer(44 + pcm16.length * 2);
+            const view = new DataView(buffer);
+            
+            function writeString(offset, str) {
+                for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+            }
+
+            writeString(0, 'RIFF');
+            view.setUint32(4, 36 + pcm16.length * 2, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeString(36, 'data');
+            view.setUint32(40, pcm16.length * 2, true);
+
+            let offset = 44;
+            for (let i = 0; i < pcm16.length; i++, offset += 2) {
+                view.setInt16(offset, pcm16[i], true);
+            }
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        function triggerBrainGreeting() {
+            speakText("¡Bienvenido a Tairos! Puedes gestionar tus proformas, deudas, arqueos de caja y exportar tu resumen contable en tiempo real.");
+        }
+
+        function speakTopic(key) {
+            if (topicKnowledge[key]) speakText(topicKnowledge[key]);
+        }
+
+        async function processCustomBrainQuestion(query) {
+            updateBrainSubtitle("Analizando consulta...");
+            try {
+                const systemPrompt = "Eres Tairos. Explica en 2 oraciones breves la función solicitada sobre proformas, deudas o contabilidad en Tairos.";
+                const payload = {
+                    contents: [{ parts: [{ text: query }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] }
+                };
+
+                const res = await fetch(geminiTextUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+                const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (reply) {
+                    speakText(reply);
+                    return;
+                }
+            } catch (e) {}
+            speakText(`Tu consulta sobre "${query}" se encuentra disponible en las pestañas principales del panel.`);
+        }
+
+        function askBrainQuestion(event) {
+            event.preventDefault();
+            const input = document.getElementById('brainQuestionInput');
+            const q = input.value.trim();
+            if (!q) return;
+            processCustomBrainQuestion(q);
+            input.value = '';
+        }
+
+        function startBrainVoiceInput() {
+            if (!brainRecognition) {
+                showToast("Usa Google Chrome para dictado por voz nativo.", "error");
+                return;
+            }
+            try {
+                brainRecognition.start();
+                const btn = document.getElementById('brainMicBtn');
+                btn.classList.add('mic-pulse-ring', 'bg-rose-600');
+            } catch(e) {}
+        }
+
+        function stopBrainMic() {
+            const btn = document.getElementById('brainMicBtn');
+            btn.classList.remove('mic-pulse-ring', 'bg-rose-600');
+        }
+
+        function enterPlatform() {
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            
+            const gateway = document.getElementById('welcomeGateway');
+            const dashboard = document.getElementById('mainDashboard');
+
+            gateway.classList.add('opacity-0', 'pointer-events-none');
+            setTimeout(() => {
+                gateway.classList.add('hidden');
+                dashboard.classList.remove('hidden');
+            }, 500);
+        }
+
+        function reopenGateway() {
+            const gateway = document.getElementById('welcomeGateway');
+            const dashboard = document.getElementById('mainDashboard');
+
+            dashboard.classList.add('hidden');
+            gateway.classList.remove('hidden', 'opacity-0', 'pointer-events-none');
+            triggerBrainGreeting();
+        }
+
+        function toggleMainVoiceRecording() {
+            if (!mainRecognition) {
+                showToast("Tu navegador no soporta voz nativa. Usa Google Chrome.", "error");
+                return;
+            }
+            try {
+                mainRecognition.start();
+                const micBtn = document.getElementById('micBtn');
+                micBtn.classList.add('mic-pulse-ring', 'bg-rose-600');
+            } catch (e) {}
+        }
+
+        function stopMainMic() {
+            const micBtn = document.getElementById('micBtn');
+            micBtn.classList.remove('mic-pulse-ring', 'bg-rose-600');
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            renderLedger();
+            renderProformasTable();
+            renderDeudasTable();
+        });
+    </script>
+</body>
+</html>

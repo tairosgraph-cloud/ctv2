@@ -1,0 +1,255 @@
+/* ---------------------------------------------------------------------------
+   Tipografías e iconos, servidos desde el propio paquete (sin CDN)
+   Vite los empaqueta en dist/assets, así que el taller sigue viendo iconos y
+   fuentes aunque se quede sin internet o le bloqueen cdnjs / Google Fonts.
+
+   Los nombres de familia («Inter», «Space Grotesk») son los que espera
+   tailwind.config.js en fontFamily.sans y fontFamily.display.
+   Subconjunto latino: basta para el español y evita cargar cirílico o griego.
+--------------------------------------------------------------------------- */
+@import '@fontsource/inter/latin-300.css';
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-600.css';
+@import '@fontsource/inter/latin-700.css';
+@import '@fontsource/inter/latin-800.css';
+@import '@fontsource/space-grotesk/latin-500.css';
+@import '@fontsource/space-grotesk/latin-700.css';
+
+/* all.min.css trae las tres familias que usa la app: fa-solid, fa-regular y
+   fa-brands (el WhatsApp de los modales). Importarlas sueltas dejaría fuera
+   alguna y saldrían cuadros en blanco en los botones que solo son icono. */
+@import '@fortawesome/fontawesome-free/css/all.min.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-800 font-sans antialiased dark:bg-slate-950 dark:text-slate-100;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-brand-600/60 dark:bg-brand-500/50;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-1 ring-offset-white dark:ring-offset-slate-900;
+  }
+}
+
+@layer components {
+  .brain-glow {
+    box-shadow:
+      0 0 50px rgba(13, 148, 136, 0.35),
+      inset 0 0 30px rgba(20, 184, 166, 0.2);
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, #2dd4bf 0%, #99f6e4 50%, #ffffff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .field {
+    @apply w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-800
+           outline-none transition-colors placeholder:text-slate-400
+           focus:border-brand-500 focus:bg-white
+           dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100
+           dark:placeholder:text-slate-500 dark:focus:border-brand-400 dark:focus:bg-slate-800;
+  }
+
+  .field-label {
+    @apply mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-800 px-4 py-2
+           text-xs font-bold text-white shadow transition-colors hover:bg-brand-900
+           disabled:cursor-not-allowed disabled:opacity-50
+           dark:bg-brand-600 dark:hover:bg-brand-500;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-4 py-2
+           text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200
+           disabled:cursor-not-allowed disabled:opacity-50
+           dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700;
+  }
+
+  .th {
+    @apply p-3.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500
+           dark:text-slate-400;
+  }
+
+  .td {
+    @apply p-3.5 align-top text-xs;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Animaciones del robot asistente: van en CSS y no en Tailwind porque
+   necesitan transform-box: fill-box para funcionar dentro del SVG. */
+@keyframes botBlink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.08);
+  }
+}
+
+@keyframes botTalk {
+  0%,
+  100% {
+    transform: scaleY(0.55);
+  }
+  50% {
+    transform: scaleY(1.2);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Comprobante imprimible
+   En pantalla #print-root está vacío y oculto. Al imprimir se esconde el resto
+   del documento y solo queda el comprobante, sin necesidad de librerías PDF:
+   el propio navegador imprime en papel o guarda como PDF.
+--------------------------------------------------------------------------- */
+#print-root {
+  display: none;
+}
+
+@media print {
+  /* El comprobante va a papel blanco: el tema oscuro no debe teñirlo. */
+  html.dark {
+    color-scheme: light;
+  }
+
+  body > *:not(#print-root) {
+    display: none !important;
+  }
+
+  #print-root {
+    display: block !important;
+    background: #fff;
+    color: #000;
+  }
+
+  @page {
+    margin: 14mm;
+  }
+
+  .receipt {
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    font-size: 11pt;
+    color: #000;
+    max-width: 90mm;
+    margin: 0 auto;
+  }
+
+  .receipt header,
+  .receipt footer {
+    text-align: center;
+  }
+
+  .receipt h1 {
+    font-size: 15pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+
+  .receipt .sub {
+    font-size: 9pt;
+    color: #444;
+  }
+
+  .receipt dl {
+    margin: 4mm 0;
+    border-top: 1px dashed #000;
+    border-bottom: 1px dashed #000;
+    padding: 2mm 0;
+  }
+
+  .receipt dl > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 6mm;
+    padding: 0.6mm 0;
+  }
+
+  .receipt dt {
+    color: #333;
+  }
+
+  .receipt dd {
+    font-weight: 600;
+    text-align: right;
+  }
+
+  .receipt table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 3mm 0;
+  }
+
+  .receipt th,
+  .receipt td {
+    text-align: left;
+    padding: 0.8mm 0;
+    vertical-align: top;
+  }
+
+  .receipt th {
+    border-bottom: 1px solid #000;
+    font-size: 9pt;
+    text-transform: uppercase;
+  }
+
+  .receipt .num {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .receipt .totals .due dt,
+  .receipt .totals .due dd {
+    font-weight: 700;
+    border-top: 1px solid #000;
+    padding-top: 1.5mm;
+  }
+
+  .receipt .totals .settled dt,
+  .receipt .totals .settled dd {
+    font-weight: 700;
+  }
+
+  .receipt footer {
+    margin-top: 5mm;
+  }
+}

@@ -1,0 +1,81 @@
+# Configuración de despliegue de Tairos.rc en Netlify.
+# El equivalente para Vercel está en vercel.json (JSON no admite comentarios, así que
+# las explicaciones viven aquí y en .env.example).
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Misma versión que usa la integración continua (.github/workflows/ci.yml).
+  NODE_VERSION = "20"
+
+  # ---------------------------------------------------------------------------
+  # VARIABLES DE ENTORNO: HAY QUE PONERLAS ANTES DE COMPILAR
+  # ---------------------------------------------------------------------------
+  # Vite NO lee variables en tiempo de ejecución: sustituye cada import.meta.env.VITE_*
+  # por su valor literal mientras compila y lo incrusta en los archivos de dist/. Por eso:
+  #
+  #   * VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY y VITE_APP_USER deben estar definidas
+  #     en el panel del host (Netlify: Site configuration > Environment variables;
+  #     Vercel: Settings > Environment Variables) ANTES de lanzar el build.
+  #   * Cambiarlas después NO afecta a un sitio ya publicado: hay que volver a compilar
+  #     y redesplegar ("Clear cache and deploy site" / "Redeploy").
+  #   * Si faltan, la app compila igual y arranca en "modo local" (los datos se quedan en
+  #     el localStorage de cada navegador), así que un despliegue sin ellas no falla:
+  #     simplemente sale sin base de datos. Conviene comprobarlo tras el primer deploy.
+  #   * La anon key acaba en el paquete JavaScript que se descarga el navegador: es
+  #     pública por diseño y sólo es segura si Supabase tiene RLS bien configurado.
+  #     La service_role key NUNCA debe ir en una variable VITE_*.
+  #
+  # No se definen aquí a propósito: este archivo se versiona y no debe contener claves.
+
+# -----------------------------------------------------------------------------
+# CACHÉ
+# -----------------------------------------------------------------------------
+# Vite pone un hash de contenido en el nombre de cada asset (index-Ds65sUTX.js), así que
+# un cambio de contenido cambia el nombre del archivo: se pueden cachear para siempre.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# index.html sí conserva su nombre y es quien apunta a los assets con hash. Si se cachea,
+# el navegador sigue pidiendo los assets de la versión vieja (que ya no existen) o se
+# queda con una interfaz antigua. Debe revalidarse siempre.
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# favicon.svg vive en public/ y se copia sin hash: caché corta para poder cambiarlo.
+[[headers]]
+  for = "/favicon.svg"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, must-revalidate"
+
+# -----------------------------------------------------------------------------
+# SIN REESCRITURA SPA (a propósito)
+# -----------------------------------------------------------------------------
+# Lo habitual en una app de React es redirigir /* a /index.html con código 200 para que
+# el enrutador de cliente resuelva las rutas profundas. Aquí NO hace falta y sería
+# contraproducente:
+#
+#   1. La app no usa enrutador: las pestañas (Registro, Proformas, Deudas, Arqueo) son
+#      estado de React y sólo existe una URL, la raíz. No hay ninguna ruta profunda que
+#      rescatar.
+#   2. Con esa redirección, cualquier URL inventada (/admin, /assets/no-existe) devolvería
+#      el index.html con un 200 en vez de un 404 honesto: se rompe el diagnóstico de
+#      assets que faltan y los buscadores indexan páginas fantasma.
+#   3. vite.config.ts usa base './' (rutas relativas). Si el host sirviera el index.html
+#      desde una ruta de profundidad distinta a la suya, los assets relativos se
+#      resolverían mal. No servirlo fuera de su sitio es justamente lo que lo mantiene
+#      funcionando en la raíz y en subrutas por igual.
+#
+# Si en el futuro se añade react-router, habrá que añadir aquí la redirección y cambiar
+# `base` a una ruta absoluta.

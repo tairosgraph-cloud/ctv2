@@ -1,0 +1,63 @@
+# Integración continua de Tairos.rc: reproduce en limpio lo que se hace en local
+# (tipos, pruebas de humo y build) para que nada llegue roto a la rama principal
+# ni a un despliegue.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Sólo lectura: el flujo no publica nada, únicamente comprueba.
+permissions:
+  contents: read
+
+# Si se empujan dos commits seguidos a la misma rama, cancela el primero.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: Tipos, pruebas y build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # `npm ci` (y no `npm install`) porque instala exactamente lo que dice
+      # package-lock.json, no lo toca, y falla si el lock y package.json han
+      # divergido. Es lo que se quiere en un entorno de integración.
+      - name: Instalar dependencias
+        run: npm ci
+
+      # esbuild (que usa `npm run smoke`, y Vite por dentro) trae un binario nativo
+      # que se coloca en su script postinstall. npm 11.6+ bloquea por defecto los
+      # scripts de instalación de las dependencias y sólo deja un aviso
+      # ("blocked install scripts"), con lo que el fallo aparecería mucho después y
+      # con un mensaje confuso. Node 20 viene con npm 10, donde los scripts sí se
+      # ejecutan y este paso pasa de largo en un segundo; si algún día el npm de
+      # turno los bloquea, `npm rebuild esbuild` los ejecuta explícitamente sólo
+      # para ese paquete. Es idempotente y evita tener que recurrir a
+      # `npm install`, que sí modificaría el lock.
+      - name: Asegurar el binario de esbuild
+        run: npx --no-install esbuild --version || npm rebuild esbuild
+
+      - name: Comprobar tipos
+        run: npm run typecheck
+
+      - name: Pruebas de humo
+        run: npm run smoke
+
+      # Build sin VITE_SUPABASE_* a propósito: comprueba que la app compila y que
+      # el "modo local" (datos en localStorage) sigue siendo una salida válida.
+      # OJO: este artefacto NO sirve para desplegar, porque Vite incrusta las
+      # variables en tiempo de compilación; el host debe compilar con las suyas.
+      - name: Compilar
+        run: npm run build

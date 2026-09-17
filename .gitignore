@@ -1,0 +1,41 @@
+# Dependencias
+node_modules
+.npm
+
+# Resultado de la compilación
+dist
+dist-ssr
+.vite
+*.tsbuildinfo
+
+# Variables de entorno: contienen claves, nunca se versionan.
+# .env.example sí se versiona (es la plantilla, sin valores).
+.env
+.env.*
+!.env.example
+*.local
+
+# Registros de errores
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Enlace con los hosts de despliegue (contiene identificadores del proyecto).
+# La configuración que sí se versiona es vercel.json y netlify.toml.
+.vercel
+.netlify
+
+# Editores y sistema operativo
+.vscode
+.idea
+*.swp
+.DS_Store
+Thumbs.db
+
+# Informe del proyecto en PDF: es un artefacto generado a partir de report.html
+# con `node tools/make-pdf.js`. El HTML de origen y el generador sí se versionan;
+# el binario no, porque no se puede revisar en un diff y engorda el historial en
+# cada regeneración. Si alguna vez se quiere publicar, `git add -f report.pdf`.
+report.pdf

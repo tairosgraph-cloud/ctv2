@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tairos.rc — Registro Contable, Proformas, Deudas y Arqueo</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!--
+      Tipografías (Inter, Space Grotesk) e iconos (Font Awesome) se importan
+      desde src/index.css y los empaqueta Vite: la app no pide nada a ningún
+      CDN externo, así que funciona sin internet.
+    -->
+    <script>
+      // Tema antes del primer pintado, para que quien use el modo oscuro no vea
+      // el fogonazo blanco. useTheme (src/hooks/useTheme.tsx) vuelve a aplicar
+      // esto mismo al montar; aquí solo nos adelantamos al primer render.
+      ;(function () {
+        try {
+          // Clave duplicada a propósito: este script corre antes que los
+          // módulos y no puede importar. La fuente es src/lib/tema.ts.
+          var guardado = localStorage.getItem('tairos.rc.tema')
+          // Cualquier cosa que no sea «claro» u «oscuro» cuenta como «sistema»,
+          // igual que hace leerGuardado() en el hook.
+          var oscuro =
+            guardado === 'oscuro' ||
+            (guardado !== 'claro' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.classList.toggle('dark', oscuro)
+          document.documentElement.style.colorScheme = oscuro ? 'dark' : 'light'
+        } catch (e) {
+          /* modo privado o almacenamiento bloqueado: lo aplicará el hook al montar */
+        }
+      })()
+    </script>
+  </head>
+  <body class="h-full">
+    <div id="root" class="h-full"></div>
+    <!-- Destino del comprobante imprimible; vacío mientras no se imprime. -->
+    <div id="print-root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

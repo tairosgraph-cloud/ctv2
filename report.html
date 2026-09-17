@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Informe del proyecto — registro-contable_v2</title>
+  <style>
+    body{font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; line-height:1.45; color:#111}
+    header{border-bottom:1px solid #ddd; margin-bottom:20px}
+    h1{font-size:22px; margin:8px 0}
+    h2{font-size:16px; margin:18px 0 8px}
+    p, li{font-size:13px}
+    .meta{color:#555; font-size:12px}
+    section{margin-bottom:16px}
+    pre{background:#f6f6f6;padding:10px;border-radius:6px;overflow:auto}
+    table{border-collapse:collapse;width:100%;margin:8px 0}
+    table, th, td{border:1px solid #ddd}
+    th, td{padding:8px;text-align:left;font-size:13px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Informe del proyecto: registro-contable_v2</h1>
+    <div class="meta">Generado: 2026-08-24 · Generado por el equipo de desarrollo</div>
+  </header>
+
+  <section>
+    <h2>1. Resumen / Función del proyecto</h2>
+    <p>Este proyecto es una aplicación web para registro contable y gestión comercial: llevar el libro diario, gestionar proformas y pedidos, controlar deudas (cuentas por cobrar / pagar), y realizar arqueos de caja. La UI permite registrar órdenes de trabajo (work_orders), manejar adelantos, abonos parciales y generar asientos contables que representan movimientos reales de caja.</p>
+  </section>
+
+  <section>
+    <h2>2. Qué hará la aplicación (funcionalidades clave)</h2>
+    <ul>
+      <li>Registro de asientos contables diarios (Libro diario: ingresos y egresos).</li>
+      <li>Gestión de pedidos / work orders con items y adelantos.</li>
+      <li>Proformas (cotizaciones) y conversión a ventas.</li>
+      <li>Gestión de Deudas: creación de cuentas por cobrar/pagar y registro de abonos parciales.</li>
+      <li>Arqueo de caja: cierre de caja y resumen ejecutivo con conteo por denominaciones.</li>
+      <li>Historial de movimientos con auditoría y detalle de asientos.</li>
+      <li>Soporte offline-simulado: adaptador localStorage para demo si no hay Supabase configurado.</li>
+      <li>Exportación CSV, copiador al portapapeles y soporte básico de voz (Web Speech API) para dictado de asientos.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>3. Stack tecnológico y herramientas</h2>
+    <p>Basado en los archivos del repositorio (package.json, estructura src/):</p>
+    <table>
+      <tr><th>Área</th><th>Herramientas / Tecnologías</th></tr>
+      <tr><td>Frontend</td><td>React 18 (TSX), Vite (bundler/dev server), TypeScript</td></tr>
+      <tr><td>Estilos</td><td>Tailwind CSS, PostCSS, Autoprefixer</td></tr>
+      <tr><td>Backend / BBDD</td><td>Supabase (Postgres) — migraciones en supabase/migrations/*.sql</td></tr>
+      <tr><td>Cliente BBDD</td><td>@supabase/supabase-js</td></tr>
+      <tr><td>Build / utilidades</td><td>esbuild (script de smoke), npm scripts (dev/build/preview/typecheck/smoke)</td></tr>
+      <tr><td>Testing / comprobaciones</td><td>Script de "smoke" personalizado (scripts/smoke.ts) — comprobaciones de negocio</td></tr>
+      <tr><td>Otras</td><td>Web Speech API para dictado/voz, CSV export helpers, utilidades para clipboard</td></tr>
+    </table>
+    <p>Dependencias principales (package.json): React, react-dom, @supabase/supabase-js. Dev: Vite, TypeScript, Tailwind, PostCSS, esbuild y tipos de TypeScript.</p>
+  </section>
+
+  <section>
+    <h2>4. Estado actual / avance</h2>
+    <p>Resumen del README y estructura del código:</p>
+    <ul>
+      <li>La app es una migración desde un prototipo HTML y ya contiene: adaptadores para Supabase y para localStorage, estructura de features (registro, movimientos, proformas, deudas, arqueo), componentes de UI y hooks.</li>
+      <li>Funcionalidades ya implementadas: persistencia (local/Supabase), modales accesibles, exportación CSV correcta, manejo de portapapeles con fallback, control de abonos parciales con historial, UI móvil (sidebar y navegación), correcciones de XSS y problemas del prototipo.</li>
+      <li>Hay migraciones SQL listas (supabase/migrations/0001_init.sql, 0002_work_orders.sql, 0003_phone_and_edit.sql) y un seed.sql con datos de ejemplo.</li>
+      <li>El README documenta el flujo de datos, las reglas de negocio (p. ej. register_work_order que usa transacción SQL) y los estados automáticos de cobro (PAGADO / PARCIAL / PENDIENTE / ANULADO).</li>
+      <li>El proyecto arranca sin credenciales de Supabase usando datos de demostración; la UI muestra el estado de conexión.</li>
+    </ul>
+    <p>Pendientes / siguientes pasos (listado en README):</p>
+    <ol>
+      <li>Autenticación con Supabase Auth y RLS por usuario (ya hay SQL que lo contempla).</li>
+      <li>IGV y numeración correlativa de comprobantes electrónicos.</li>
+      <li>Cierre por período (mensual) y reportes históricos.</li>
+      <li>Realtime de Supabase para sincronización entre cajeros.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>5. Tareas a realizar (sugerencia priorizada)</h2>
+    <ol>
+      <li>Implementar Supabase Auth + RLS (prioridad alta) — seguridad y multiusuario.</li>
+      <li>Habilitar realtime (low-latency) para que dos usuarios vean cambios al instante (media).</li>
+      <li>Generación de comprobantes electrónicos con IGV y numeración correlativa (media/alta).</li>
+      <li>Mecanismo de cierre por período y reportes mensuales (media).</li>
+      <li>Revisar flujos de copias de seguridad y migraciones periódicas de la base (baja/operacional).</li>
+      <li>Agregar tests automatizados sobre reglas contables críticas (usar el script smoke como base) (media).</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>6. Cómo probar / poner en marcha (rápido)</h2>
+    <pre>
+npm install
+npm run dev    # abre http://localhost:5173
+
+Para usar Supabase:
+- Crear proyecto en supabase.com
+- Ejecutar las migraciones en orden desde supabase/migrations/
+- (Opcional) Ejecutar supabase/seed.sql
+- Pegar VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en .env.local
+- Reiniciar npm run dev
+    </pre>
+  </section>
+
+  <section>
+    <h2>7. Archivos y estructura relevantes</h2>
+    <ul>
+      <li>src/: componentes, hooks, lib (supabase client, csv, voice), data (adapters)</li>
+      <li>supabase/migrations/: esquemas y funciones SQL</li>
+      <li>scripts/smoke.ts: comprobaciones de negocio</li>
+      <li>README.md: documentación de funcionamiento y pendientes</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>8. Recomendaciones finales</h2>
+    <ul>
+      <li>Priorizar Auth + RLS antes de publicar (la base actualmente usa anon key que permite lectura/escritura abierta).</li>
+      <li>Agregar pruebas unitarias y de integración sobre las reglas contables críticas (register_work_order, abonos, anulación de asientos).</li>
+      <li>Considerar una Edge Function para integrar proveedores de voz o servicios de TTS con clave segura (si se quiere volver a usar Gemini u otro servicio).</li>
+    </ul>
+  </section>
+
+  <footer class="meta">Informe generado automáticamente a partir del repositorio — registro-contable_v2</footer>
+</body>
+</html>
