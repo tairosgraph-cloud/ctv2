@@ -1,3 +1,4 @@
+import { useAuth } from '@/hooks/useAuth'
 import { useData } from '@/store/DataProvider'
 import type { TabKey } from '@/types'
 import { GROUPS, TABS } from './tabs'
@@ -10,6 +11,7 @@ interface SidebarProps {
 
 export function Sidebar({ active, onSelect, onOpenGateway }: SidebarProps) {
   const { transactions, proformas, debts, mode } = useData()
+  const { correo, requiereSesion, cerrarSesion } = useAuth()
 
   const badges: Partial<Record<TabKey, { text: string; className: string }>> = {
     movimientos: {
@@ -106,6 +108,38 @@ export function Sidebar({ active, onSelect, onOpenGateway }: SidebarProps) {
             aria-hidden="true"
           />
         </button>
+
+        {/* En modo local no hay cuentas: enseñar un correo o un «salir» ahí solo
+            prometería algo que no existe. */}
+        {requiereSesion && correo && (
+          <div className="rounded-2xl border border-slate-200/80 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/50">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-xs text-brand-800 dark:bg-brand-500/15 dark:text-brand-300">
+                <i className="fa-solid fa-user" aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                  Sesión iniciada
+                </span>
+                {/* El correo se trunca: los largos rompían el ancho de la barra. */}
+                <span
+                  className="block truncate text-xs font-bold text-slate-700 dark:text-slate-200"
+                  title={correo}
+                >
+                  {correo}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void cerrarSesion()}
+              className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-1.5 text-[11px] font-bold text-slate-600 shadow-sm transition-colors hover:bg-rose-50 hover:text-rose-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+            >
+              <i className="fa-solid fa-right-from-bracket" aria-hidden="true" />
+              Cerrar sesión
+            </button>
+          </div>
+        )}
 
         <div
           className={`rounded-xl px-3 py-2 text-[10px] font-semibold ${

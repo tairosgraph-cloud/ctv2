@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { resetLocalStore } from '@/data'
+import { useAuth } from '@/hooks/useAuth'
 import { useInformeGeneral } from '@/hooks/useInformeGeneral'
 import { useTheme, type Tema } from '@/hooks/useTheme'
 import { useToast } from '@/hooks/useToast'
@@ -17,7 +18,10 @@ const TEMAS: { valor: Tema; etiqueta: string; icono: string; nota: string }[] = 
   },
 ]
 
-/** Los accesos que tendría el sistema cuando exista el login. */
+/**
+ * Los permisos por rol todavía no existen: hoy toda cuenta que entra puede
+ * hacer de todo. Se listan igual para que se vea hacia dónde va esto.
+ */
 const ROLES = [
   {
     nombre: 'Administrador',
@@ -36,18 +40,9 @@ const ROLES = [
   },
 ]
 
-/**
- * Ejemplo de cómo se vería la lista cuando exista el inicio de sesión.
- * Los correos van en blanco a propósito: un correo inventado aquí parecería
- * una cuenta de verdad.
- */
-const USUARIOS_MUESTRA = [
-  { nombre: 'Administrador del negocio', correo: 'Sin asignar', rol: 'Administrador', activo: true },
-  { nombre: 'Sin asignar', correo: 'Sin asignar', rol: 'Cajero', activo: false },
-]
-
 export function ConfiguracionView() {
   const { tema, elegir } = useTheme()
+  const { correo, requiereSesion, cerrarSesion } = useAuth()
   const { mode, transactions, workOrders, debts, proformas, closings } = useData()
   const informe = useInformeGeneral()
   const toast = useToast()
@@ -173,62 +168,82 @@ export function ConfiguracionView() {
         </div>
       </Seccion>
 
-      {/* ---------- Usuarios: visual ---------- */}
+      {/* ---------- Usuarios: real cuando hay Supabase ---------- */}
       <Seccion
         titulo="Usuarios y accesos"
         descripcion="Quién entra al sistema y qué puede hacer"
         icono="fa-users"
-        estado={<Proximamente nota="Necesita el inicio de sesión, que aún no existe" />}
+        estado={
+          requiereSesion ? (
+            <Activo />
+          ) : (
+            <Proximamente nota="Sin servidor no hay cuentas que validar" />
+          )
+        }
       >
-        <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-amber-100 bg-amber-50 p-3 text-xs dark:border-amber-500/25 dark:bg-amber-500/10">
-          <i
-            className="fa-solid fa-triangle-exclamation mt-0.5 text-amber-600 dark:text-amber-400"
-            aria-hidden="true"
-          />
-          <p className="text-amber-900 dark:text-amber-200">
-            <span className="font-bold">Hoy el sistema no pide contraseña.</span> Cualquiera que
-            abra la dirección entra con todos los permisos. Esta sección queda lista para cuando se
-            active el inicio de sesión.
+        {requiereSesion ? (
+          <>
+            <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-xs dark:border-emerald-500/25 dark:bg-emerald-500/10">
+              <i
+                className="fa-solid fa-lock mt-0.5 text-emerald-600 dark:text-emerald-400"
+                aria-hidden="true"
+              />
+              <p className="text-emerald-900 dark:text-emerald-200">
+                <span className="font-bold">El sistema pide correo y contraseña.</span> Quien abra
+                la dirección sin una cuenta válida solo ve la pantalla de acceso; los datos se piden
+                al servidor ya identificado.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-sm text-brand-800 dark:bg-brand-500/10 dark:text-brand-300">
+                  <i className="fa-solid fa-user" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-bold text-slate-800 dark:text-slate-100">
+                    {correo ?? 'Sin identificar'}
+                  </p>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                    Es el nombre que queda firmando cada asiento que registres.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void cerrarSesion()}
+                className="shrink-0 rounded-xl bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20"
+              >
+                <i className="fa-solid fa-right-from-bracket mr-1.5" aria-hidden="true" />
+                Cerrar sesión
+              </button>
+            </div>
+
+            <p className="mt-3 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+              Las cuentas se crean y se borran desde Supabase → Authentication → Users. Todavía no
+              se pueden administrar desde aquí.
+            </p>
+          </>
+        ) : (
+          <div className="flex items-start gap-2.5 rounded-xl border border-amber-100 bg-amber-50 p-3 text-xs dark:border-amber-500/25 dark:bg-amber-500/10">
+            <i
+              className="fa-solid fa-triangle-exclamation mt-0.5 text-amber-600 dark:text-amber-400"
+              aria-hidden="true"
+            />
+            <p className="text-amber-900 dark:text-amber-200">
+              <span className="font-bold">Esta copia no pide contraseña.</span> Funciona solo con el
+              almacenamiento de este navegador, sin servidor ni cuentas: no hay nada que un inicio
+              de sesión pudiera proteger. Conecta Supabase y el acceso se activa solo.
+            </p>
+          </div>
+        )}
+
+        <div className="mb-2 mt-4 flex items-center justify-between gap-2">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            Roles previstos
           </p>
+          <Proximamente nota="Hoy toda cuenta que entra puede hacer de todo" />
         </div>
-
-        <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 dark:bg-slate-800/60">
-              <tr>
-                <th className="p-2.5 font-semibold text-slate-500 dark:text-slate-400">Persona</th>
-                <th className="p-2.5 font-semibold text-slate-500 dark:text-slate-400">Rol</th>
-                <th className="p-2.5 font-semibold text-slate-500 dark:text-slate-400">Estado</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {USUARIOS_MUESTRA.map((u) => (
-                <tr key={u.nombre}>
-                  <td className="p-2.5">
-                    <p className="font-bold text-slate-800 dark:text-slate-100">{u.nombre}</p>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{u.correo}</p>
-                  </td>
-                  <td className="p-2.5 text-slate-600 dark:text-slate-300">{u.rol}</td>
-                  <td className="p-2.5">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                        u.activo
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300'
-                          : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
-                      }`}
-                    >
-                      {u.activo ? 'Activo' : 'Sin usar'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <p className="mb-2 mt-4 text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          Roles previstos
-        </p>
         <ul className="space-y-2">
           {ROLES.map((rol) => (
             <li key={rol.nombre} className="flex items-start gap-2.5 text-xs">

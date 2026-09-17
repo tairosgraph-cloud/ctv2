@@ -22,6 +22,28 @@ interface JobLine {
 let nextKey = 1
 const emptyLine = (): JobLine => ({ key: nextKey++, description: '', amount: '' })
 
+/** "cliente, monto y método de pago" */
+function listar(campos: string[]): string {
+  if (campos.length < 2) return campos.join('')
+  return `${campos.slice(0, -1).join(', ')} y ${campos[campos.length - 1]}`
+}
+
+/**
+ * El aviso del dictado enumera qué campos se rellenaron y cuáles no salieron;
+ * nunca afirma que la cifra sea la correcta, porque el intérprete falla a
+ * menudo y antes un acierto y un error se leían exactamente igual.
+ */
+function resumenDictado(rellenados: string[], faltantes: string[]): string {
+  const partes = [
+    rellenados.length
+      ? `Dictado: llené ${listar(rellenados)}.`
+      : 'Dictado: no pude deducir ningún campo.',
+  ]
+  if (faltantes.length) partes.push(`No deduje ${listar(faltantes)}.`)
+  partes.push('Tipo y categoría son suposiciones: revisa lo marcado en ámbar.')
+  return partes.join(' ')
+}
+
 interface LedgerFormProps {
   /** Se llama tras guardar con éxito; el modal lo usa para cerrarse. */
   onSaved?: () => void
@@ -60,6 +82,29 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
   /** false = el cliente paga todo ahora; true = adelanta una parte. */
   const [partial, setPartial] = useState(Boolean(editing && editing.advance < editing.total))
   const [saving, setSaving] = useState(false)
+  /**
+   * Campos que escribió el dictado y el usuario todavía no ha confirmado. El
+   * intérprete acierta poco, así que lo que llena se marca en ámbar hasta que
+   * alguien lo edita a mano: la marca dice "esto lo puso la máquina, revísalo".
+   */
+  const [dictado, setDictado] = useState<Set<string>>(() => new Set())
+
+  const olvidarDictado = (campo: string) =>
+    setDictado((current) => {
+      if (!current.has(campo)) return current
+      const siguiente = new Set(current)
+      siguiente.delete(campo)
+      return siguiente
+    })
+
+  /** Clases del recuadro ámbar; sólo se añaden mientras el campo siga sin revisar. */
+  const marca = (campo: string) =>
+    dictado.has(campo)
+      ? ' border-amber-400 bg-amber-50 dark:border-amber-500/60 dark:bg-amber-500/10'
+      : ''
+
+  const avisoDictado = (campo: string) =>
+    dictado.has(campo) ? { 'aria-describedby': 'aviso-dictado' } : {}
 
   const total = useMemo(
     () =>
@@ -78,31 +123,74 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
 
   const addLine = () => setLines((current) => [...current, emptyLine()])
 
-  const removeLine = (key: number) =>
+  const removeLine = (key: number) => {
     setLines((current) => (current.length === 1 ? current : current.filter((l) => l.key !== key)))
+    olvidarDictado(`descripcion-${key}`)
+    olvidarDictado(`monto-${key}`)
+  }
 
   const { listening, toggle } = useRecognizer({
     onResult: (transcript) => {
       const parsed = parseVoiceEntry(transcript)
+      const marcas = new Set<string>()
+      const rellenados: string[] = []
+      const faltantes: string[] = []
+
+      // El tipo y la categoría siempre traen un valor porque el intérprete cae
+      // en un valor por defecto: son suposiciones, no deducciones, y el aviso
+      // las nombra aparte para no venderlas como dato leído.
       setType(parsed.type)
-      if (parsed.party) setParty(parsed.party)
-      if (parsed.payment) setPayment(parsed.payment)
-      if (parsed.category) setCategory(parsed.category)
+      marcas.add('tipo')
+      if (parsed.category) {
+        setCategory(parsed.category)
+        marcas.add('categoria')
+      }
+
+      // El nombre se pide con la etiqueta del tipo recién dictado, no con la
+      // que estaba en pantalla antes.
+      const quien = parsed.type === 'Ingreso' ? 'cliente' : 'proveedor'
+      if (parsed.party) {
+        setParty(parsed.party)
+        marcas.add('party')
+        rellenados.push(quien)
+      } else {
+        faltantes.push(`el ${quien}`)
+      }
+
+      if (parsed.payment) {
+        setPayment(parsed.payment)
+        marcas.add('payment')
+        rellenados.push('método de pago')
+      } else {
+        faltantes.push('el método de pago')
+      }
+
       // El dictado llena la primera línea vacía, o añade una nueva.
-      setLines((current) => {
-        const target = current.find((l) => !l.description.trim() && !l.amount.trim())
-        const filled: JobLine = {
-          key: target?.key ?? nextKey++,
-          description: parsed.concept,
-          amount: parsed.amount !== null ? String(parsed.amount) : '',
-        }
-        return target ? current.map((l) => (l.key === target.key ? filled : l)) : [...current, filled]
-      })
-      toast.info(
-        parsed.amount !== null
-          ? `Dictado: ${parsed.type} de ${money(parsed.amount)}`
-          : 'Dictado capturado. Revisa el monto antes de guardar.',
+      const target = lines.find((l) => !l.description.trim() && !l.amount.trim())
+      const key = target?.key ?? nextKey++
+      const filled: JobLine = {
+        key,
+        description: parsed.concept,
+        amount: parsed.amount !== null ? String(parsed.amount) : '',
+      }
+      setLines((current) =>
+        current.some((l) => l.key === key)
+          ? current.map((l) => (l.key === key ? filled : l))
+          : [...current, filled],
       )
+      marcas.add(`descripcion-${key}`)
+      rellenados.push('concepto')
+      if (parsed.amount !== null) {
+        marcas.add(`monto-${key}`)
+        rellenados.push('monto')
+      } else {
+        faltantes.push('el monto')
+      }
+
+      // Se suman a las marcas previas: un campo dictado antes y todavía sin
+      // revisar no puede perder el aviso porque el segundo dictado lo omita.
+      setDictado((current) => new Set([...current, ...marcas]))
+      toast.info(resumenDictado(rellenados, faltantes))
     },
     onError: (message) => toast.error(message),
   })
@@ -113,6 +201,7 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
     setLines([emptyLine()])
     setAdvance('')
     setPartial(false)
+    setDictado(new Set())
   }
 
   const submit = async (event: FormEvent) => {
@@ -192,15 +281,37 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
       <div className="flex items-center justify-between gap-3 rounded-xl border border-brand-100 dark:border-brand-500/25 bg-brand-50/60 dark:bg-brand-500/10 px-3 py-2">
         <span className="text-[11px] font-semibold text-brand-800 dark:text-brand-300">
           <i className="fa-solid fa-wand-magic-sparkles mr-1.5" aria-hidden="true" />
-          Dicta la orden y se llenan los campos solos
+          Dicta la orden: se llena lo que se entienda y queda marcado para revisar
         </span>
         <MicButton listening={listening} onToggle={toggle} label="Dictar datos de la orden" />
       </div>
 
+      {dictado.size > 0 && (
+        <div
+          id="aviso-dictado"
+          className="flex items-start justify-between gap-2 rounded-xl border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-[11px] font-semibold text-amber-800 dark:text-amber-300"
+        >
+          <span>
+            <i className="fa-solid fa-triangle-exclamation mr-1.5" aria-hidden="true" />
+            Lo marcado en ámbar lo escribió el dictado, no está verificado: confírmalo antes de
+            guardar.
+          </span>
+          <button
+            type="button"
+            onClick={() => setDictado(new Set())}
+            className="shrink-0 rounded-lg px-2 py-0.5 text-[11px] font-bold text-amber-900 dark:text-amber-200 transition-colors hover:bg-amber-200/60 dark:hover:bg-amber-500/20"
+          >
+            Ya lo revisé
+          </button>
+        </div>
+      )}
+
       <div
         role="radiogroup"
         aria-label="Tipo de operación"
-        className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 p-1"
+        className={`grid grid-cols-2 gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 p-1${
+          dictado.has('tipo') ? ' ring-1 ring-amber-400 dark:ring-amber-500/60' : ''
+        }`}
       >
         {(['Ingreso', 'Egreso'] as TxType[]).map((option) => (
           <button
@@ -208,7 +319,11 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
             type="button"
             role="radio"
             aria-checked={type === option}
-            onClick={() => !editing && setType(option)}
+            onClick={() => {
+              if (editing) return
+              setType(option)
+              olvidarDictado('tipo')
+            }}
             disabled={Boolean(editing)}
             className={`rounded-lg py-2 text-xs font-bold transition-all ${
               type === option
@@ -235,9 +350,13 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
         <input
           id="tx-party"
           value={party}
-          onChange={(event) => setParty(event.target.value)}
+          onChange={(event) => {
+            setParty(event.target.value)
+            olvidarDictado('party')
+          }}
           placeholder={isCobrar ? 'Ej: Cliente Juan Pérez' : 'Ej: Proveedor Pacheco S.A.C.'}
-          className="field"
+          className={`field${marca('party')}`}
+          {...avisoDictado('party')}
         />
       </div>
 
@@ -270,18 +389,26 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
             <div key={line.key} className="flex items-start gap-1.5">
               <input
                 value={line.description}
-                onChange={(event) => setLine(line.key, { description: event.target.value })}
+                onChange={(event) => {
+                  setLine(line.key, { description: event.target.value })
+                  olvidarDictado(`descripcion-${line.key}`)
+                }}
                 placeholder={index === 0 ? 'Ej: 1,000 volantes A6 couche' : 'Otro trabajo…'}
                 aria-label={`Descripción del trabajo ${index + 1}`}
-                className="field flex-1"
+                className={`field flex-1${marca(`descripcion-${line.key}`)}`}
+                {...avisoDictado(`descripcion-${line.key}`)}
               />
               <input
                 value={line.amount}
-                onChange={(event) => setLine(line.key, { amount: event.target.value })}
+                onChange={(event) => {
+                  setLine(line.key, { amount: event.target.value })
+                  olvidarDictado(`monto-${line.key}`)
+                }}
                 inputMode="decimal"
                 placeholder="0.00"
                 aria-label={`Monto del trabajo ${index + 1}`}
-                className="field w-24 shrink-0 text-right font-semibold"
+                className={`field w-24 shrink-0 text-right font-semibold${marca(`monto-${line.key}`)}`}
+                {...avisoDictado(`monto-${line.key}`)}
               />
               <button
                 type="button"
@@ -380,8 +507,12 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
           <select
             id="tx-category"
             value={category}
-            onChange={(event) => setCategory(event.target.value)}
-            className="field"
+            onChange={(event) => {
+              setCategory(event.target.value)
+              olvidarDictado('categoria')
+            }}
+            className={`field${marca('categoria')}`}
+            {...avisoDictado('categoria')}
           >
             {CATEGORIES.map((c) => (
               <option key={c} value={c}>
@@ -397,9 +528,13 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
           <select
             id="tx-payment"
             value={payment}
-            onChange={(event) => setPayment(event.target.value as PaymentMethod)}
+            onChange={(event) => {
+              setPayment(event.target.value as PaymentMethod)
+              olvidarDictado('payment')
+            }}
             disabled={advanceValue === 0}
-            className="field disabled:opacity-50"
+            className={`field disabled:opacity-50${marca('payment')}`}
+            {...avisoDictado('payment')}
           >
             {PAYMENT_METHODS.map((p) => (
               <option key={p} value={p}>

@@ -2,13 +2,15 @@ import { useState } from 'react'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { WelcomeGateway } from '@/components/gateway/WelcomeGateway'
 import { ArqueoView } from '@/features/arqueo/ArqueoView'
+import { LoginView } from '@/features/auth/LoginView'
 import { ConfiguracionView } from '@/features/configuracion/ConfiguracionView'
 import { DeudasView } from '@/features/deudas/DeudasView'
 import { MovimientosView } from '@/features/movimientos/MovimientosView'
 import { ProformasView } from '@/features/proformas/ProformasView'
 import { RegistroView } from '@/features/registro/RegistroView'
+import { useAuth } from '@/hooks/useAuth'
 import { isSupabaseConfigured } from '@/lib/supabase'
-import { useData } from '@/store/DataProvider'
+import { DataProvider, useData } from '@/store/DataProvider'
 import type { TabKey } from '@/types'
 
 /**
@@ -79,7 +81,7 @@ function ConnectionBanner() {
   )
 }
 
-export default function App() {
+function Panel() {
   const [showGateway, setShowGateway] = useState(true)
   const [tab, setTab] = useState<TabKey>('registro')
   const [search, setSearch] = useState('')
@@ -112,5 +114,38 @@ export default function App() {
       {tab === 'arqueo' && <ArqueoView />}
       {tab === 'configuracion' && <ConfiguracionView />}
     </DashboardLayout>
+  )
+}
+
+/** Espera corta mientras el cliente de Supabase lee la sesión guardada. */
+function PantallaCargando() {
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-slate-100 dark:bg-slate-950">
+      <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-slate-400">
+        <i
+          className="fa-solid fa-spinner fa-spin text-2xl text-brand-600 dark:text-brand-400"
+          aria-hidden="true"
+        />
+        <p className="text-xs font-semibold">Comprobando tu sesión…</p>
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  const { requiereSesion, estado } = useAuth()
+
+  if (requiereSesion && estado === 'cargando') return <PantallaCargando />
+  if (requiereSesion && estado !== 'con-sesion') return <LoginView />
+
+  // El proveedor de datos se monta DESPUÉS de la sesión a propósito: si
+  // cargara antes, su primera lectura saldría sin token —y con las políticas
+  // RLS cerradas eso es un error de permisos en la cara del usuario—, y al
+  // entrar no volvería a intentarlo. Al cerrar sesión se desmonta y la
+  // contabilidad que había en memoria se va con él.
+  return (
+    <DataProvider>
+      <Panel />
+    </DataProvider>
   )
 }

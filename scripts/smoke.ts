@@ -33,6 +33,56 @@ async function main() {
   check('voz: categoría inferida', b.category, 'Materiales')
   check('voz: monto con miles', parseVoiceEntry('ingreso 1.250,50 en efectivo').amount, 1250.5)
 
+  // --- dictado: el monto es el precio, no la cantidad del trabajo ----------
+  // Coger el primer número de la frase metía la cantidad ("mil volantes") en
+  // los libros como si fuera el importe.
+  const montoDictado = (frase: string) => parseVoiceEntry(frase).amount
+  check('voz: el precio gana a la cantidad', montoDictado('mil volantes A6 por 240 soles'), 240)
+  check('voz: cantidad en dígitos ignorada', montoDictado('1000 volantes por 240 soles'), 240)
+  check('voz: precio tras "a"', montoDictado('cliente Luis 2 millares a 180 soles'), 180)
+  check('voz: "A6" no es un monto', montoDictado('volantes A6 por cincuenta soles'), 50)
+  check('voz: S/ pegado al importe', montoDictado('ingreso de S/ 1,200.50 cliente Mary por banners'), 1200.5)
+  check('voz: el teléfono no es un monto', montoDictado('cliente Juan 987654321 por volantes 50 soles'), 50)
+  // Ante dos precios igual de respaldados, o una cantidad sin precio, callar es
+  // más barato que inventar la cifra.
+  check('voz: dos precios distintos no se adivinan', montoDictado('cobré 300 soles y quedaron 500 soles'), null)
+  check('voz: cantidad sin precio no es monto', montoDictado('mil volantes para el cliente Rosa'), null)
+  check('voz: "una gigantografía" no es S/ 1', montoDictado('venta de una gigantografía al cliente Beto'), null)
+  check('voz: la fecha de entrega no es monto', montoDictado('entrega el 15 de mayo para el cliente Rosa'), null)
+  // Controles: los casos que ya funcionaban siguen igual.
+  check('voz: número suelto sigue valiendo', montoDictado('venta 350 cliente Pedro'), 350)
+  check('voz: importe en palabras con miles', montoDictado('egreso mil doscientos soles por alquiler'), 1200)
+
+  // --- dictado: método de pago sin falsos positivos ------------------------
+  // En una alternancia \b sólo ata al primer y último término, así que "pos"
+  // casaba dentro de "tipos" y "visa" dentro de "avisa".
+  const pagoDictado = (frase: string) => parseVoiceEntry(frase).payment
+  check('voz: "tipos" no es POS', pagoDictado('egreso por varios tipos de papel 80 soles'), null)
+  check('voz: "grupos" no es POS', pagoDictado('cliente Grupos Unidos por afiches 120 soles'), null)
+  check('voz: "avisa" no es Visa', pagoDictado('el cliente avisa que paga mañana'), null)
+  // "tarjeta" es un producto de imprenta antes que una forma de pago.
+  check('voz: tarjetas de presentación no son pago', pagoDictado('cliente Carmen por tarjetas de presentación 150 soles'), null)
+  // Controles: los métodos dictados de verdad se siguen reconociendo.
+  check('voz: tarjeta de crédito sí es pago', pagoDictado('cliente Ana por afiches 200 soles con tarjeta de crédito'), 'Tarjeta')
+  check('voz: visa sí es pago', pagoDictado('el cliente pagó con visa 90 soles'), 'Tarjeta')
+  check('voz: pos sí es pago', pagoDictado('cobré 45 soles por pos'), 'Tarjeta')
+  check('voz: transferencia', pagoDictado('egreso 300 soles por toner en transferencia bcp'), 'Transferencia')
+  check('voz: yape', pagoDictado('ingreso 90 soles por stickers en yape'), 'Yape/Plin')
+
+  // --- dictado: el nombre no se corta en "de" ------------------------------
+  // "Rosa de la Cruz" se guardaba como "Rosa" y "Distribuidora de Tintas" como
+  // "Distribuidora": en Perú eso es media agenda.
+  const nombreDictado = (frase: string) => parseVoiceEntry(frase).party
+  check('voz: nombre con "de la"', nombreDictado('ingreso 200 soles cliente Rosa de la Cruz por volantes'), 'Rosa de la Cruz')
+  check('voz: razón social con "de"', nombreDictado('egreso 890 soles proveedor Distribuidora de Tintas por toner'), 'Distribuidora de Tintas')
+  check('voz: nombre con "del"', nombreDictado('egreso proveedor Papelera del Norte por papel bond'), 'Papelera del Norte')
+  check('voz: conector suelto fuera del nombre', nombreDictado('proveedor de Tintas Perú por toner'), 'Tintas Perú')
+  // Controles: los cortes que ya funcionaban siguen cortando.
+  check('voz: corta en "por"', nombreDictado('cliente Juan Pérez por volantes'), 'Juan Pérez')
+  check('voz: corta en "en"', nombreDictado('cliente Pedro Quispe en efectivo'), 'Pedro Quispe')
+  check('voz: corta ante la cifra', nombreDictado('cliente Marta 150 soles'), 'Marta')
+  check('voz: corta en la coma', nombreDictado('cliente Ana María, volantes'), 'Ana María')
+
   // --- montos --------------------------------------------------------------
   check('monto: 1.234,50', parseAmount('1.234,50'), 1234.5)
   check('monto: negativo rechazado', parseAmount('-20'), 0)
