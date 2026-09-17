@@ -4,6 +4,12 @@
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "build": {
+    "env": {
+      "VITE_SUPABASE_URL": "https://uzimdlkildejgkflkpxi.supabase.co",
+      "VITE_SUPABASE_ANON_KEY": "sb_publishable_pZiHcDehUg4HER_12XARMA_EirTsObW"
+    }
+  },
   "headers": [
     {
       "source": "/assets/(.*)",
