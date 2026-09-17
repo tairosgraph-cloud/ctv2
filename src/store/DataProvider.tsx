@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { db } from '@/data'
 import { buildCashArqueo } from '@/lib/cashArqueo'
+import { buildProformaBriefing } from '@/lib/proformas'
 import { APP_USER, isSupabaseConfigured } from '@/lib/supabase'
 import type {
   CashClosing,
@@ -105,7 +106,9 @@ function computeStats(
     else porPagar += d.balance
   }
 
-  const vigentes = proformas.filter((p) => p.status === 'Vigente')
+  // Vigente es solo el estado en el papel: una cotización fuera de plazo lo
+  // conserva para siempre y hasta ahora se contaba como dinero en juego.
+  const { vivas, montoVivas } = buildProformaBriefing(proformas)
 
   return {
     ingresos,
@@ -113,8 +116,8 @@ function computeStats(
     balance: ingresos - egresos,
     porCobrar,
     porPagar,
-    proformasVigentes: vigentes.length,
-    proformasMonto: vigentes.reduce((sum, p) => sum + p.total, 0),
+    proformasVigentes: vivas.length,
+    proformasMonto: montoVivas,
     efectivo,
     digital,
   }

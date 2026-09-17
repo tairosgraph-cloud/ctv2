@@ -1,3 +1,5 @@
+import { fechaDeCaducidad } from '@/lib/proformas'
+
 const soles = new Intl.NumberFormat('es-PE', {
   style: 'currency',
   currency: 'PEN',
@@ -49,12 +51,15 @@ export function isoDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-PE')
 }
 
-/** Suma dias a una fecha ISO y devuelve la fecha de vencimiento legible. */
+/**
+ * Fecha de caducidad de una cotización, legible.
+ *
+ * El cálculo vive en lib/proformas para que la fecha que se pinta y la que
+ * decide si está caducada salgan siempre del mismo sitio.
+ */
 export function expiryDate(issuedAt: string, days: number): string {
-  const d = new Date(issuedAt)
-  if (Number.isNaN(d.getTime())) return '—'
-  d.setDate(d.getDate() + days)
-  return d.toLocaleDateString('es-PE')
+  const vence = fechaDeCaducidad(issuedAt, days)
+  return vence ? vence.toLocaleDateString('es-PE') : '—'
 }
 
 /**

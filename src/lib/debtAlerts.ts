@@ -1,3 +1,4 @@
+import { diasCalendario } from '@/lib/fechas'
 import type { Debt } from '@/types'
 
 /** A partir de cuántos días una cuenta sin vencimiento ya pide atención. */
@@ -29,9 +30,7 @@ export interface DebtBriefing {
 }
 
 function diasEntre(desde: string, hasta: Date): number {
-  const d = new Date(desde)
-  if (Number.isNaN(d.getTime())) return 0
-  return Math.max(0, Math.floor((hasta.getTime() - d.getTime()) / 86_400_000))
+  return Math.max(0, diasCalendario(desde, hasta) ?? 0)
 }
 
 /**

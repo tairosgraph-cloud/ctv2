@@ -1,13 +1,15 @@
 import { localAdapter, resetLocalStore } from '@/data/localAdapter'
 import { parseVoiceEntry } from '@/lib/voiceParser'
-import { parseAmount } from '@/lib/format'
+import { expiryDate, parseAmount } from '@/lib/format'
 import { buildLedgerRows } from '@/lib/ledgerRows'
 import { buildCashArqueo, describeCashWindow, findLastClosing } from '@/lib/cashArqueo'
 import { numerosDePagina } from '@/hooks/usePagination'
 import { generarDemoIntermedio } from '@/data/demoIntermedio'
 import { briefingToSpeech, buildBotMessages, buildDebtBriefing, describirAntiguedad } from '@/lib/debtAlerts'
+import { diasCalendario, diasParaVencer, esHoy } from '@/lib/fechas'
+import { buildProformaBriefing, diasParaCaducar } from '@/lib/proformas'
 import { answerQuestion } from '@/components/gateway/knowledge'
-import type { CashClosing, Debt, Transaction, WorkOrder } from '@/types'
+import type { CashClosing, Debt, Proforma, Transaction, WorkOrder } from '@/types'
 
 let failures = 0
 function check(name: string, actual: unknown, expected: unknown) {
@@ -700,6 +702,58 @@ async function main() {
   check('aviso: ambas son urgentes', conVencida.urgentes, 2)
   check('robot: la vencida encabeza la ronda', conVencida.todas[0].debt.party, 'Vencida')
   check('robot: la vencida tiñe su globo', buildBotMessages(conVencida)[1].tone, 'vencida')
+
+  // --- fechas sin hora --------------------------------------------------------
+  // Postgres manda due_date como 'YYYY-MM-DD'. Al restar en crudo, esa fecha se
+  // situaba a las 19:00 del día anterior en Lima, así que al anochecer —hora de
+  // trabajo en una imprenta— una cuenta que vencía hoy figuraba como vencida.
+  const manana8 = new Date(2026, 8, 17, 8, 0)
+  const noche20 = new Date(2026, 8, 17, 20, 0)
+
+  check('fechas: vence hoy, por la mañana no ha vencido', diasCalendario('2026-09-17', manana8), 0)
+  check('fechas: vence hoy, de noche tampoco', diasCalendario('2026-09-17', noche20), 0)
+  check('fechas: ayer cuenta un día', diasCalendario('2026-09-16', noche20), 1)
+  check('fechas: mañana va en negativo', diasCalendario('2026-09-18', noche20), -1)
+  check('fechas: cuántos días faltan', diasParaVencer('2026-09-20', noche20), 3)
+  check('fechas: aguanta el ISO del adaptador local', diasCalendario('2026-09-16T23:30:00.000Z', noche20), 1)
+  check('fechas: sin fecha devuelve null, no cero', diasCalendario(null, noche20), null)
+  check('fechas: esHoy de noche', esHoy('2026-09-17', noche20), true)
+
+  const venceHoy = buildDebtBriefing(
+    [cuenta({ id: 'h', party: 'Vence hoy', createdAt: '2026-09-10', dueDate: '2026-09-17' })],
+    noche20,
+  )
+  check('aviso: al anochecer, la que vence hoy no está vencida', venceHoy.porCobrar[0].diasVencida, 0)
+  check('aviso: y por tanto no alarma', venceHoy.porCobrar[0].urgencia, 'reciente')
+
+  // --- caducidad de cotizaciones ---------------------------------------------
+  // El estado 'Vigente' no caduca solo: sin esto, una proforma muerta seguía
+  // contando como dinero en juego en la tarjeta de Registro y en la barra lateral.
+  const proforma = (over: Partial<Proforma>): Proforma => ({
+    id: 'p', code: 'PRO-001', client: 'Cliente', detail: 'd', total: 100,
+    validityDays: 15, status: 'Vigente', issuedAt: '2026-09-01', transactionId: null, ...over,
+  })
+
+  check('proformas: emitida hoy con 15 días le quedan 15', diasParaCaducar('2026-09-17', 15, noche20), 15)
+  check('proformas: caduca hoy', diasParaCaducar('2026-09-02', 15, noche20), 0)
+  check('proformas: caducó ayer', diasParaCaducar('2026-09-01', 15, noche20), -1)
+  check('proformas: la fecha pintada coincide con el cálculo', expiryDate('2026-09-01', 15), '16/9/2026')
+
+  const cotizaciones = buildProformaBriefing(
+    [
+      proforma({ id: 'viva', issuedAt: '2026-09-15', total: 500 }),
+      proforma({ id: 'justa', issuedAt: '2026-09-04', total: 200 }),
+      proforma({ id: 'muerta', issuedAt: '2026-08-01', total: 800 }),
+      proforma({ id: 'cobrada', issuedAt: '2026-08-01', total: 999, status: 'Convertida' }),
+    ],
+    noche20,
+  )
+  check('proformas: la caducada sale de las vivas', cotizaciones.vivas.map((p) => p.id), ['viva', 'justa'])
+  check('proformas: y se lista aparte', cotizaciones.caducadas.map((p) => p.id), ['muerta'])
+  check('proformas: avisa de la que caduca en 2 días', cotizaciones.porCaducar.map((p) => p.id), ['justa'])
+  check('proformas: el monto vivo excluye la muerta', cotizaciones.montoVivas, 700)
+  check('proformas: y contabiliza lo que se dejó escapar', cotizaciones.montoCaducadas, 800)
+  check('proformas: una convertida ni vive ni caduca', cotizaciones.vivas.concat(cotizaciones.caducadas).some((p) => p.id === 'cobrada'), false)
 
   // sin nada pendiente el aviso calla
   const vacio = buildDebtBriefing([cuenta({ balance: 0 })])

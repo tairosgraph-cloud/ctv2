@@ -10,7 +10,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ active, onSelect, onOpenGateway }: SidebarProps) {
-  const { transactions, proformas, debts, mode } = useData()
+  const { transactions, debts, stats, mode } = useData()
   const { correo, requiereSesion, cerrarSesion } = useAuth()
 
   const badges: Partial<Record<TabKey, { text: string; className: string }>> = {
@@ -19,7 +19,7 @@ export function Sidebar({ active, onSelect, onOpenGateway }: SidebarProps) {
       className: 'bg-brand-100 dark:bg-brand-500/20 text-brand-800 dark:text-brand-300',
     },
     proformas: {
-      text: String(proformas.filter((p) => p.status === 'Vigente').length),
+      text: String(stats.proformasVigentes),
       className: 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300',
     },
     deudas: {
