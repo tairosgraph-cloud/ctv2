@@ -39,3 +39,6 @@ Thumbs.db
 # el binario no, porque no se puede revisar en un diff y engorda el historial en
 # cada regeneración. Si alguna vez se quiere publicar, `git add -f report.pdf`.
 report.pdf
+
+# Conexión para migraciones (contiene la URL del proyecto)
+.env.db
