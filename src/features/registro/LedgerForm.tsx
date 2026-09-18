@@ -88,6 +88,11 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
    * alguien lo edita a mano: la marca dice "esto lo puso la máquina, revísalo".
    */
   const [dictado, setDictado] = useState<Set<string>>(() => new Set())
+  /**
+   * Si este registro salió de un dictado. No se deduce de `dictado`: «Ya lo
+   * revisé» vacía ese conjunto y el asiento seguiría siendo de origen voz.
+   */
+  const [origenVoz, setOrigenVoz] = useState(false)
 
   const olvidarDictado = (campo: string) =>
     setDictado((current) => {
@@ -132,6 +137,7 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
   const { listening, toggle } = useRecognizer({
     onResult: (transcript) => {
       const parsed = parseVoiceEntry(transcript)
+      setOrigenVoz(true)
       const marcas = new Set<string>()
       const rellenados: string[] = []
       const faltantes: string[] = []
@@ -202,6 +208,7 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
     setAdvance('')
     setPartial(false)
     setDictado(new Set())
+    setOrigenVoz(false)
   }
 
   const submit = async (event: FormEvent) => {
@@ -249,7 +256,11 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
         return
       }
 
-      const { transaction, debt } = await registerWorkOrder({ kind: type, ...payload })
+      const { transaction, debt } = await registerWorkOrder({
+        kind: type,
+        ...payload,
+        source: origenVoz ? 'voz' : 'manual',
+      })
 
       if (transaction && debt) {
         toast.success(

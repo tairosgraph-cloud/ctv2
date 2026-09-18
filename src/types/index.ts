@@ -146,10 +146,15 @@ export interface NewWorkOrder {
   notes: string
   author: string
   items: NewWorkOrderItem[]
+  /** Origen del asiento del adelanto. Sin indicar, 'manual'. */
+  source?: TxSource
 }
 
-/** Corrección de un pedido ya registrado. El tipo (Ingreso/Egreso) no cambia. */
-export type UpdateWorkOrder = Omit<NewWorkOrder, 'kind' | 'author'>
+/**
+ * Corrección de un pedido ya registrado. El tipo (Ingreso/Egreso) no cambia, y
+ * el origen tampoco: corregir lo dictado no lo convierte en tecleado.
+ */
+export type UpdateWorkOrder = Omit<NewWorkOrder, 'kind' | 'author' | 'source'>
 
 export interface WorkOrderResult {
   workOrder: WorkOrder

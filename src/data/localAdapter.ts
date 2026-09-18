@@ -395,7 +395,7 @@ export const localAdapter: DataAdapter = {
             status: 'Completado',
             author: input.author,
             notes: input.notes,
-            source: 'manual',
+            source: input.source ?? 'manual',
             workOrderId: orderId,
           })
         : null

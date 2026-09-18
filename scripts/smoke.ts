@@ -167,6 +167,20 @@ async function main() {
   check('pedido: deuda es por cobrar', parcial.debt?.kind, 'COBRAR')
   check('pedido: asiento enlazado', parcial.transaction?.workOrderId, parcial.workOrder.id)
   check('pedido: deuda enlazada', parcial.debt?.workOrderId, parcial.workOrder.id)
+  check('pedido: sin indicar origen queda como tecleado', parcial.transaction?.source, 'manual')
+
+  // Un pedido dictado conserva su origen: sin eso no hay forma de medir, con
+  // uso real, cuánto hay que corregir lo que rellena el dictado.
+  const dictado = await localAdapter.registerWorkOrder({
+    kind: 'Ingreso', party: 'Rosa', phone: '', category: 'Ventas', payment: 'Yape/Plin',
+    advance: 50, notes: '', author: 'Test', items, source: 'voz',
+  })
+  check('pedido dictado: el asiento guarda origen voz', dictado.transaction?.source, 'voz')
+  const corregido = await localAdapter.updateWorkOrder(dictado.workOrder.id, {
+    party: 'Rosa de la Cruz', phone: '', category: 'Ventas', payment: 'Yape/Plin',
+    advance: 60, notes: '', items,
+  })
+  check('pedido dictado: corregirlo no borra el origen', corregido.transaction?.source, 'voz')
 
   // b) pago completo: solo asiento, sin deuda
   const completo = await localAdapter.registerWorkOrder({

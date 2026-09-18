@@ -562,6 +562,7 @@ export const supabaseAdapter: DataAdapter = {
         p_notes: input.notes,
         p_author: input.author,
         p_items: input.items,
+        p_source: input.source ?? 'manual',
       }),
     ) as { work_order_id: string; transaction_id: string | null; debt_id: string | null }
 
