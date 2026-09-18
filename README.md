@@ -102,7 +102,9 @@ comentado al final de `supabase/migrations/0001_init.sql` tiene la versión list
 | `npm run build`     | Chequeo de tipos + bundle de producción en `dist/`    |
 | `npm run preview`   | Sirve el bundle de producción                         |
 | `npm run typecheck` | Solo TypeScript                                       |
-| `npm run smoke`     | Pruebas de la lógica de negocio (276 comprobaciones)   |
+| `npm run smoke`     | Pruebas de la lógica de negocio y del dictado (también en CI) |
+| `npm run voz -- "frase"` | Pasa una frase por el intérprete y enseña qué sacó |
+| `npm run voz:evaluar` | Mide el intérprete contra el corpus de frases (ver [Dictado](#dictado-cómo-se-mide)) |
 
 ## Estructura
 
@@ -690,6 +692,102 @@ app no puede producir. Hay 20 comprobaciones que lo verifican.
 > **No se cargan en Supabase.** Cuando hay credenciales, la app usa la base real
 > y estos datos no aparecen. Mezclar 120 pedidos inventados con contabilidad de
 > verdad obligaría a distinguirlos uno por uno después.
+
+## Dictado: cómo se mide
+
+El dictado no se prueba hablándole a la app: se mide contra un corpus de
+frases con lo que un contable anotaría de cada una. Así cualquier cambio —en
+las reglas o, más adelante, en el modelo— se compara con un número y no con
+una impresión.
+
+```bash
+npm run voz:evaluar                       # resumen
+npm run voz:evaluar -- --detalle          # y cada frase que no quedó perfecta
+npm run voz:evaluar -- --etiqueta pedido  # solo un grupo
+npm run voz:evaluar -- --json salida.json # el detalle, para comparar dos corridas
+```
+
+Mide la tubería entera que ve el formulario: el intérprete y después
+`validarExtraccion` (`src/lib/dictado/validar.ts`), la última puerta.
+
+### Qué cuenta
+
+| Métrica | Qué significa |
+| --- | --- |
+| **Afirmaciones falsas** | La que manda. Un campo con un valor distinto al real (*erróneo*) o con un valor cuando la frase no decía nada (*inventado*). Un hueco se rellena a mano; una cifra falsa que parece verdadera acaba en los libros. |
+| Cifras fuera de la frase | Importes que nadie dijo. La guarda del validador los convierte en hueco o en elección; debe ser siempre 0. |
+| Frases seguras | Sin ninguna afirmación falsa. |
+| Frases aceptables | Todo correcto: el usuario no tiene que tocar nada. |
+| Faltas | Campos que la frase decía y el intérprete dejó vacíos. Molestan, no engañan. |
+| Supuestos fallidos | Valores por defecto (tipo, categoría, «pagó todo») que el intérprete declaró como suposición y resultaron mal. Salen en ámbar. |
+
+### La guarda de cifras
+
+Todo importe de la extracción tiene que estar en la frase. Solo se admiten
+tres cuentas, y solo cuando la frase las anuncia: cantidad × precio unitario
+(«3 banderolas a 70 soles **cada una**» → 210), la mitad de una cifra como
+adelanto («adelantó **la mitad**») y, en el total de una proforma o una
+deuda, la suma de precios dichos por separado. Lo demás pasa a ser un hueco o
+una elección entre las cifras que sí se dijeron.
+
+### Línea base de las reglas
+
+Sobre las 150 frases de `scripts/corpus-dictado.jsonl`:
+
+| | Antes | Ahora |
+| --- | --- | --- |
+| Afirmaciones falsas | 64 | **0** |
+| — en importes | 9 | **0** |
+| — en nombres | 19 | **0** |
+| Frases seguras | 92/150 | **150/150** |
+| Frases aceptables | 51/150 | 81/150 |
+
+El «antes» destapó fallos que estaban en producción, porque `LedgerForm` usa
+este mismo intérprete: con precio unitario («a 70 soles cada una») registraba
+el de una unidad como si fuera el de la línea, y el nombre se tragaba lo que
+venía detrás («María abonó», «Rosa al crédito», «Mario yape»).
+
+**Ese 150/150 no vale como promesa**: las reglas se ajustaron mirando este
+mismo corpus, escrito por la misma persona. La cifra honesta sale de
+`scripts/corpus-dictado-control.jsonl`: 40 frases escritas aparte, sin ver las
+reglas, con el habla de mostrador («Rosita me dejó 50…», «pa' don Lucho»).
+
+| Control (40 frases) | Primera medición | Tras arreglar lo que destapó |
+| --- | --- | --- |
+| Afirmaciones falsas | 15 | 6 |
+| Frases seguras | 26/40 (65 %) | 34/40 (85 %) |
+| Frases aceptables | 3/40 | 7/40 |
+| Cifras fuera de la frase | 0 | 0 |
+
+La primera medición es la que cuenta: con habla natural, una de cada tres
+frases traía algo falso. Lo que destapó eran fallos generales de lectura de
+cifras —«un ciento» leído como 101, «5 mil» como 5, «3 docenas a 2.50 cada
+uno» como 7,50, «a 24 la resma» como 24, una cantidad de un producto que no
+estaba en la lista («8 planchas») tomada como precio— y se arreglaron.
+Pero al arreglarlos mirando el control, **el control dejó de ser
+independiente**: antes de fiarse de otra comparación hace falta uno nuevo.
+
+```bash
+npm run voz:evaluar -- --corpus scripts/corpus-dictado-control.jsonl
+```
+
+`npm run smoke` falla si las reglas vuelven a afirmar algo falso sobre el
+corpus principal, si aparece una cifra fuera de la frase o si baja el número
+de frases aceptables.
+
+### Añadir frases
+
+Una por línea en `scripts/corpus-dictado.jsonl`. El formato y las convenciones
+están en la cabecera de `scripts/evaluar-dictado.ts`; lo esencial:
+
+- `esperado` es parcial: solo se puntúa lo que trae, y `null` exige que el
+  intérprete no afirme nada en ese campo.
+- Nombres sin tratamiento («la señora María» → «María»); en descripciones,
+  las palabras que tienen que aparecer, no el texto exacto.
+- **Frases reales**: la etiqueta `real` es para transcripciones tal cual
+  salieron del micrófono en el mostrador, con sus errores («llape»,
+  «giganto grafía»). Todas las actuales son `sintetica`. Hacen falta 20–30
+  reales antes de fiarse de ningún número.
 
 ## Pendiente / siguientes pasos
 

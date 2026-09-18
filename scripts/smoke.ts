@@ -1,5 +1,5 @@
 import { localAdapter, resetLocalStore } from '@/data/localAdapter'
-import { parseVoiceEntry } from '@/lib/voiceParser'
+import { cifrasDeLaFrase, parseVoiceEntry } from '@/lib/voiceParser'
 import { expiryDate, parseAmount } from '@/lib/format'
 import { buildLedgerRows } from '@/lib/ledgerRows'
 import { buildCashArqueo, describeCashWindow, findLastClosing } from '@/lib/cashArqueo'
@@ -10,6 +10,12 @@ import { diasCalendario, diasParaVencer, esHoy } from '@/lib/fechas'
 import { buildProformaBriefing, diasParaCaducar } from '@/lib/proformas'
 import { answerQuestion } from '@/components/gateway/knowledge'
 import type { CashClosing, Debt, Proforma, Transaction, WorkOrder } from '@/types'
+import { readFileSync } from 'node:fs'
+import { desdeReglas } from '@/lib/dictado/reglas'
+import { validarExtraccion } from '@/lib/dictado/validar'
+import { leerCorpus, puntuarFrase, resumir } from '@/lib/dictado/puntuar'
+import { normalizarDictado } from '../supabase/functions/_shared/dictado/vocabulario.ts'
+import type { Cobro, Extraccion } from '../supabase/functions/_shared/dictado/tipos.ts'
 
 let failures = 0
 function check(name: string, actual: unknown, expected: unknown) {
@@ -84,6 +90,131 @@ async function main() {
   check('voz: corta en "en"', nombreDictado('cliente Pedro Quispe en efectivo'), 'Pedro Quispe')
   check('voz: corta ante la cifra', nombreDictado('cliente Marta 150 soles'), 'Marta')
   check('voz: corta en la coma', nombreDictado('cliente Ana María, volantes'), 'Ana María')
+
+  // Lo que el corpus destapó en el parser que usa producción: el nombre se
+  // tragaba el método de pago, el verbo o la forma de cobro.
+  check('voz: corta en el método sin preposición', nombreDictado('cobré 25 soles cliente Mario yape'), 'Mario')
+  check('voz: corta en el verbo', nombreDictado('la señora María abonó 50 soles'), 'María')
+  check('voz: corta en «me debe»', nombreDictado('el cliente Beto me debe 200 soles'), 'Beto')
+  check('voz: corta en «al crédito»', nombreDictado('mil volantes para el cliente Rosa al crédito por 300'), 'Rosa')
+  check('voz: corta en el «de» de una cantidad', nombreDictado('cotización para la señora María de mil volantes'), 'María')
+  check('voz: estilo formulario', nombreDictado('Ingreso 800 soles. Cliente: Restaurante El Sabor. Pago: yape'), 'Restaurante El Sabor')
+  check('voz: el «de» del apellido sigue dentro', nombreDictado('cliente José del Castillo en efectivo'), 'José del Castillo')
+
+  // Precio unitario: registrar el de una unidad dejaba la venta en una fracción.
+  check('voz: cantidad × precio unitario', montoDictado('vendí 3 banderolas a 70 soles cada una en efectivo'), 210)
+  check('voz: precio unitario con adelanto aparte', montoDictado('12 polos estampados a 18 soles cada uno'), 216)
+  check('voz: unitario sin cantidad clara no se adivina', montoDictado('volantes y tarjetas: 1000 volantes y 500 tarjetas a 0.20 cada una'), null)
+  check('voz: «cada semana» no es precio unitario', montoDictado('gasté 30 soles de pasajes cada semana'), 30)
+
+  // Lo que destapó el conjunto de control: cifras mal leídas que acababan en los libros.
+  check('voz: «un ciento» son cien unidades, no 101', montoDictado('pagó en efectivo el señor huamán 55 por un ciento de tarjetas'), 55)
+  check('voz: «5 mil» son 5000', cifrasDeLaFrase('cotiza 5 mil volantes').map((c) => c.valor), [5000])
+  check('voz: un plural cuenta cosas aunque no esté en la lista', montoDictado('le yapeé 160 al de suministros por 8 planchas'), 160)
+  check('voz: «15 días» es un plazo, no un precio', montoDictado('2 millares de hojas membretadas 280 vale 15 días'), 280)
+  check('voz: «240 los volantes» sigue siendo precio', montoDictado('mil volantes 240 los volantes'), 240)
+  check('voz: docenas por precio de pieza', montoDictado('vendí 3 docenas de llaveros a 2.50 cada uno'), 90)
+  check('voz: «a 24 la resma»', montoDictado('compré 5 resmas de bond a 24 la resma'), 120)
+  check('voz: «150 el diseño» no es precio unitario', montoDictado('150 el diseño y 200 los volantes'), null)
+  check('voz: «más igv» no dice qué total registrar', montoDictado('cotiza 300 agendas 4500 más igv'), null)
+  check('voz: dos métodos de pago, ninguno', parseVoiceEntry('le pagué 400 la mitad en efectivo y la otra mitad por transferencia').payment, null)
+
+  // El concepto es el trabajo, no lo que sigue al primer «por».
+  const conceptoDictado = (frase: string) => parseVoiceEntry(frase).concept
+  check('voz: «por 240 soles» es el precio', conceptoDictado('mil volantes A6 por 240 soles cliente Rosa'), 'mil volantes A6')
+  check('voz: «por transferencia» es el método', conceptoDictado('pagué el alquiler del local 1200 soles por transferencia'), 'alquiler del local')
+  check('voz: la medida queda dentro del trabajo', conceptoDictado('cobré 350 por 2 gigantografías de 3 por 2'), '2 gigantografías de 3 por 2')
+  check('voz: el «por» de una medida no abre el concepto', conceptoDictado('gigantografía de 3 por 2 para la señora María 350 soles'), 'gigantografía de 3')
+  check('voz: «un» es artículo, no la cifra 1', conceptoDictado('me pagaron 85 soles por un empastado de tesis en efectivo'), 'un empastado de tesis')
+  check('voz: tramos que nombran el trabajo', conceptoDictado('hazme una cotización para la señora María, son mil volantes a color, también incluye el diseño'), 'mil volantes a color + diseño')
+
+  // La categoría depende de si el dinero entra o sale.
+  check('voz: vinil comprado es material', parseVoiceEntry('compra de vinil adhesivo 260 soles proveedor Pacheco').category, 'Materiales')
+  check('voz: pagar con tarjeta no es vender tarjetas', parseVoiceEntry('pagué 45 soles de internet con tarjeta').category, 'Servicios Básicos')
+
+  // --- dictado: vocabulario de mostrador -----------------------------------
+  // Solo corrige errores de transcripción: lo que reescribe acaba en el
+  // concepto que el usuario lee.
+  for (const [entrada, esperado] of [
+    ['me pagó por llape 50', 'me pagó por yape 50'],
+    ['pagó con yapé', 'pagó con yape'],
+    ['yapé.', 'yape.'],
+    ['una giganto grafía de 3x2', 'una gigantografía de 3x2'],
+    ['tres gigante grafías', 'tres gigantografías'],
+    ['por trans ferencia', 'por transferencia'],
+    ['cincuenta lucas', 'cincuenta soles'],
+    ['cliente Lucas Pérez', 'cliente Lucas Pérez'],
+    ['el yapero', 'el yapero'],
+    ['por transfe', 'por transferencia'],
+    ['dejó 50 acuenta', 'dejó 50 a cuenta'],
+  ]) {
+    check(`vocabulario: «${entrada}»`, normalizarDictado(entrada), esperado)
+  }
+
+  // --- dictado: el intérprete de reglas con el contrato ---------------------
+  const reglas = (frase: string) => validarExtraccion(desdeReglas(frase), frase)
+  const cotiza = reglas('cotización para la señora María de mil volantes por 500 soles válida dos semanas')
+  check('reglas: una cotización va a proformas', cotiza.intent, 'proforma')
+  check('reglas: vigencia «dos semanas»', cotiza.proforma?.vigenciaDias, 15)
+  const abonoDictado = reglas('la señora María abonó 50 soles en efectivo')
+  check('reglas: un abono no es una venta nueva', [abonoDictado.intent, abonoDictado.abono?.parte, abonoDictado.abono?.monto], ['abono', 'María', 50])
+  const conResto = reglas('mil volantes para la señora Gladys por 180 soles, pagó 80 y el resto a la entrega con yape')
+  check('reglas: «pagó 80 y el resto» es un adelanto', conResto.pedido?.adelanto, { tipo: 'parcial', monto: 80 })
+  check('reglas: y el precio es el total del trabajo', conResto.pedido?.items[0].monto, 180)
+  const alCredito = reglas('mil volantes para el cliente Rosa al crédito por 300')
+  check('reglas: al crédito no pide método de pago', alCredito.faltantes.includes('pago'), false)
+  check('reglas: el teléfono se guarda', reglas('cliente Carlos 987 654 321 quinientas tarjetas por 150 soles').pedido?.telefono, '987654321')
+  check('reglas: sin palabras de venta, «pagó todo» es un supuesto', reglas('mil volantes para Rosa por 240 soles en yape').supuestos.includes('cobro'), true)
+  const dejo = reglas('para la señora nelly 3 docenas de recuerdos de bautizo dejó 50 nomás')
+  check('reglas: «dejó 50» es un adelanto, no el precio', [dejo.pedido?.adelanto.monto, dejo.pedido?.items[0].monto], [50, null])
+  check('reglas: «adelanto de sueldo» es un gasto pagado', [reglas('adelanto de sueldo a kevin 200 en efectivo').intent, reglas('adelanto de sueldo a kevin 200 en efectivo').pedido?.adelanto.tipo], ['egreso', 'total'])
+  check('reglas: una pregunta es una consulta', reglas('cuánto vendí hoy').intent, 'consulta')
+  check('reglas: una muletilla no toca nada', reglas('eh este un momento').intent, 'desconocido')
+
+  // --- dictado: el validador ------------------------------------------------
+  const extraccion = (over: Partial<Extraccion>): Extraccion => ({
+    intent: 'ingreso', pedido: null, proforma: null, abono: null, deuda: null, consulta: null,
+    faltantes: [], supuestos: [], ambiguedades: [], origen: 'llm', esquema: 1, ...over,
+  })
+  const pedidoDictado = (monto: number | null, adelanto: Cobro) => ({
+    kind: 'Ingreso' as const, parte: 'Rosa', telefono: null, categoria: 'Ventas' as const, pago: 'Yape/Plin' as const,
+    items: [{ descripcion: 'volantes', monto }], adelanto, notas: null,
+  })
+  const guardada = (frase: string, ex: Extraccion) => validarExtraccion(ex, frase)
+  check('validar: una cantidad no se acepta como precio',
+    guardada('mil volantes para Rosa en yape', extraccion({ intent: 'pedido', pedido: pedidoDictado(1000, { tipo: 'credito', monto: 0 }) })).pedido?.items[0].monto, null)
+  check('validar: una cifra que nadie dijo se rechaza',
+    guardada('mil volantes por 240 soles para Rosa en yape', extraccion({ pedido: pedidoDictado(500, { tipo: 'total', monto: 500 }) })).pedido?.items[0].monto, null)
+  check('validar: la cifra dicha se conserva',
+    guardada('mil volantes por 240 soles para Rosa en yape', extraccion({ pedido: pedidoDictado(240, { tipo: 'total', monto: 240 }) })).pedido?.items[0].monto, 240)
+  check('validar: con dos cifras posibles, que elija la persona',
+    guardada('volantes 240 soles, afiches 150 soles, Rosa, yape', extraccion({ pedido: pedidoDictado(390, { tipo: 'total', monto: 390 }) })).ambiguedades,
+    [{ campo: 'items.0.monto', opciones: ['150', '240'] }])
+  check('validar: precio unitario anunciado admite el producto',
+    guardada('vendí 3 banderolas a 70 soles cada una a Rosa en yape', extraccion({ pedido: pedidoDictado(210, { tipo: 'total', monto: 210 }) })).pedido?.items[0].monto, 210)
+  check('validar: «la mitad» admite medio precio de adelanto',
+    guardada('gigantografía 350 soles para Rosa, adelantó la mitad en yape', extraccion({ intent: 'pedido', pedido: pedidoDictado(350, { tipo: 'parcial', monto: 175 }) })).pedido?.adelanto.monto, 175)
+  check('validar: un adelanto mayor que el total no pasa',
+    guardada('volantes por 240 soles adelanto 300 soles Rosa yape', extraccion({ intent: 'pedido', pedido: pedidoDictado(240, { tipo: 'parcial', monto: 300 }) })).pedido?.adelanto.monto, null)
+  check('validar: el total de una proforma puede ser la suma de precios',
+    guardada('cotiza a María 500 tarjetas a 200 y 100 afiches a 150 por 15 días',
+      extraccion({ intent: 'proforma', proforma: { cliente: 'María', detalle: 'tarjetas y afiches', total: 350, vigenciaDias: 15 } })).proforma?.total, 350)
+  check('validar: un egreso no puede traer kind Ingreso',
+    guardada('pagué 80 soles de papel en efectivo', extraccion({ intent: 'egreso', pedido: { ...pedidoDictado(80, { tipo: 'total', monto: 80 }), kind: 'Ingreso' } })).pedido?.kind, null)
+  const intacta = extraccion({ pedido: pedidoDictado(500, { tipo: 'total', monto: 500 }) })
+  const antesDeValidar = JSON.stringify(intacta)
+  validarExtraccion(intacta, 'volantes por 240 soles')
+  check('validar: no modifica lo que recibe', JSON.stringify(intacta), antesDeValidar)
+
+  // --- dictado: el corpus ---------------------------------------------------
+  // La puerta que impide que las reglas vuelvan a mentir. El número de frases
+  // aceptables es un trinquete: se sube cuando mejora, nunca se baja.
+  const corpus = leerCorpus(readFileSync('scripts/corpus-dictado.jsonl', 'utf8'))
+  const medida = resumir(corpus.map((entrada) => puntuarFrase(entrada, reglas(entrada.frase))))
+  check('corpus: las reglas no afirman nada falso', medida.afirmacionesFalsas, 0)
+  check('corpus: ninguna cifra fuera de la frase', medida.cifrasFuera, 0)
+  check('corpus: nada esperado quedó sin avisar', medida.sinDeclarar, 0)
+  check('corpus: frases aceptables no bajan de 81', medida.aceptables >= 81, true)
 
   // --- montos --------------------------------------------------------------
   check('monto: 1.234,50', parseAmount('1.234,50'), 1234.5)
