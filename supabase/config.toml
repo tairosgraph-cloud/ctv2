@@ -1,0 +1,10 @@
+# Configuración de la CLI de Supabase para este proyecto. Sin secretos:
+# ANTHROPIC_API_KEY se sube aparte (npx supabase secrets set --env-file .env.anthropic).
+project_id = "ctv2"
+
+[functions.extraer-dictado]
+# La función comprueba la sesión ella misma (auth.getClaims y rol
+# «authenticated»). El proyecto usa las claves nuevas (sb_publishable_…), que
+# no son JWT: con la verificación de la pasarela activada, la llamada podría
+# rechazarse antes de llegar a la función.
+verify_jwt = false

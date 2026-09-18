@@ -14,6 +14,9 @@ import { readFileSync } from 'node:fs'
 import { desdeReglas } from '@/lib/dictado/reglas'
 import { validarExtraccion } from '@/lib/dictado/validar'
 import { leerCorpus, puntuarFrase, resumir } from '@/lib/dictado/puntuar'
+import { cruzarConReglas } from '@/lib/dictado/cruzar'
+import { extraerCon, hoyEnLima, type Invocar } from '@/lib/dictado/extraer'
+import { construirPeticion, leerRespuesta } from '../supabase/functions/_shared/dictado/peticion.ts'
 import { normalizarDictado } from '../supabase/functions/_shared/dictado/vocabulario.ts'
 import type { Cobro, Extraccion } from '../supabase/functions/_shared/dictado/tipos.ts'
 
@@ -210,6 +213,85 @@ async function main() {
   const antesDeValidar = JSON.stringify(intacta)
   validarExtraccion(intacta, 'volantes por 240 soles')
   check('validar: no modifica lo que recibe', JSON.stringify(intacta), antesDeValidar)
+
+  // --- dictado: la petición al modelo y su respuesta (sin llamarlo) ---------
+  const hoyA = construirPeticion('mil volantes por 240 soles', '2026-09-18')
+  const hoyB = construirPeticion('pagué la luz 90 soles', '2027-01-01', 'high')
+  check('modelo: el sistema no cambia con la frase ni la fecha (caché)', JSON.stringify(hoyA.system), JSON.stringify(hoyB.system))
+  check('modelo: el esquema tampoco', JSON.stringify(hoyA.output_config.format), JSON.stringify(hoyB.output_config.format))
+  check('modelo: la fecha va en el mensaje, con su día', hoyA.messages[0].content, 'Hoy es 2026-09-18 (viernes).\nDictado: «mil volantes por 240 soles»')
+  // Opus 5 no guarda en caché prompts de menos de 512 tokens; ~3 caracteres
+  // por token en español deja margen.
+  check('modelo: el sistema es cacheable', hoyA.system[0].text.length > 2000, true)
+  const texto = (t: string, stop = 'end_turn') => ({ stop_reason: stop, content: [{ type: 'text', text: t }] })
+  const valida = JSON.stringify({
+    intent: 'abono', pedido: null, proforma: null, abono: { parte: 'María', monto: 50, pago: 'Efectivo' }, deuda: null,
+    consulta: null, faltantes: [], supuestos: [], ambiguedades: [],
+  })
+  check('modelo: una respuesta válida se marca como del modelo', [leerRespuesta(texto(valida))?.origen, leerRespuesta(texto(valida))?.esquema], ['llm', 1])
+  check('modelo: un rechazo cae a las reglas', leerRespuesta(texto(valida, 'refusal')), null)
+  check('modelo: una respuesta cortada cae a las reglas', leerRespuesta(texto(valida.slice(0, 40), 'max_tokens')), null)
+  check('modelo: un JSON roto cae a las reglas', leerRespuesta(texto('{"intent": "abono"')), null)
+  check('modelo: una intención desconocida cae a las reglas', leerRespuesta(texto(valida.replace('"abono"', '"venta"'))), null)
+  check('modelo: un bloque que no es objeto cae a las reglas', leerRespuesta(texto(valida.replace('"deuda":null', '"deuda":"no sé"'))), null)
+  check('modelo: sin las listas del esquema cae a las reglas',
+    leerRespuesta(texto('{"intent":"consulta","pedido":null,"proforma":null,"abono":null,"deuda":null,"consulta":{"pregunta":"x"}}')), null)
+  check('modelo: un pedido sin líneas cae a las reglas', leerRespuesta(texto(valida.replace('"pedido":null', '"pedido":{"adelanto":{}}'))), null)
+  check('modelo: sin bloque de texto cae a las reglas', leerRespuesta({ stop_reason: 'end_turn', content: [] }), null)
+
+  // --- dictado: la segunda opinión de las reglas ----------------------------
+  const delModelo = (monto: number | null, over: Partial<Extraccion> = {}) =>
+    extraccion({ intent: 'ingreso', pedido: pedidoDictado(monto, { tipo: 'total', monto }), ...over })
+  const deReglas = (monto: number | null, over: Partial<Extraccion> = {}) =>
+    extraccion({ intent: 'ingreso', pedido: pedidoDictado(monto, { tipo: 'total', monto }), origen: 'reglas', ...over })
+  const discrepan = cruzarConReglas(delModelo(240), deReglas(180))
+  check('cruzar: si discrepan, ninguna cifra se afirma', discrepan.pedido?.items[0].monto, null)
+  check('cruzar: y se ofrecen las dos, de menor a mayor', discrepan.ambiguedades, [{ campo: 'items.0.monto', opciones: ['180', '240'] }])
+  const coinciden = delModelo(240)
+  check('cruzar: si coinciden, no se toca nada', cruzarConReglas(coinciden, deReglas(240)), coinciden)
+  check('cruzar: si las reglas no vieron cifra, manda el modelo', cruzarConReglas(delModelo(240), deReglas(null)).pedido?.items[0].monto, 240)
+  const millares = { campo: 'items.0.monto', opciones: ['180', '360'] }
+  const eligio = cruzarConReglas(delModelo(360), deReglas(null, { ambiguedades: [millares] }))
+  check('cruzar: si las reglas vieron dos lecturas, el modelo no elige', [eligio.pedido?.items[0].monto, eligio.ambiguedades], [null, [millares]])
+  const hueco = cruzarConReglas(delModelo(null, { faltantes: ['items.0.monto'] }), deReglas(null, { ambiguedades: [millares] }))
+  check('cruzar: el hueco del modelo recibe las opciones de las reglas', [hueco.ambiguedades, hueco.faltantes], [[millares], []])
+  const otraRuta = delModelo(240, { intent: 'abono' })
+  check('cruzar: con distinta intención no hay nada que cruzar', cruzarConReglas(otraRuta, deReglas(180)), otraRuta)
+  const dosLineas = delModelo(240)
+  dosLineas.pedido!.items.push({ descripcion: 'afiches', monto: 150 })
+  check('cruzar: una línea contra dos no se compara', cruzarConReglas(dosLineas, deReglas(390)), dosLineas)
+  const original = delModelo(240)
+  const copia = JSON.stringify(original)
+  cruzarConReglas(original, deReglas(180))
+  check('cruzar: no modifica lo que recibe', JSON.stringify(original), copia)
+
+  // --- dictado: el extractor y sus salidas de emergencia --------------------
+  const venta = 'mil volantes por 240 soles para Rosa en yape'
+  const responde = (data: unknown, error: unknown = null): Invocar => async () => ({ data, error })
+  const origenYAviso = async (invocar: Invocar | null, limite?: number) => {
+    const r = await extraerCon(venta, invocar, limite)
+    return [r.extraccion.origen, r.aviso]
+  }
+  check('extraer: sin sesión, reglas y sin aviso', await origenYAviso(null), ['reglas', null])
+  check('extraer: si la función falla, reglas y aviso',
+    await origenYAviso(responde(null, new Error('500'))), ['reglas', 'El intérprete inteligente no respondió; usé el básico.'])
+  check('extraer: si la red se cae, reglas y aviso',
+    await origenYAviso(async () => { throw new TypeError('Failed to fetch') }), ['reglas', 'El intérprete inteligente no respondió; usé el básico.'])
+  check('extraer: una respuesta sin la forma del esquema no pasa',
+    (await extraerCon(venta, responde({ extraccion: { intent: 'ingreso' } }))).extraccion.origen, 'reglas')
+  let señal: AbortSignal | null = null
+  const colgada: Invocar = (_, signal) => { señal = signal; return new Promise(() => {}) }
+  const tarde = await extraerCon(venta, colgada, 30)
+  check('extraer: si no contesta a tiempo, reglas y aviso', [tarde.extraccion.origen, tarde.aviso], ['reglas', 'El intérprete inteligente tardó demasiado; usé el básico.'])
+  check('extraer: y no se queda esperando', tarde.ms < 1000, true)
+  check('extraer: y cancela la petición', (señal as AbortSignal | null)?.aborted, true)
+  let pedido: unknown = null
+  const bien = await extraerCon(venta, async (cuerpo) => { pedido = cuerpo; return { data: { extraccion: delModelo(240), modelo: 'claude-opus-5' }, error: null } })
+  check('extraer: la respuesta del modelo llega al formulario', [bien.extraccion.origen, bien.extraccion.pedido?.items[0].monto, bien.modelo, bien.aviso], ['llm', 240, 'claude-opus-5', null])
+  check('extraer: manda la frase y la fecha de Lima', pedido, { texto: venta, hoy: hoyEnLima() })
+  check('extraer: lo del modelo también pasa por la guarda',
+    (await extraerCon(venta, responde({ extraccion: delModelo(999) }))).extraccion.pedido?.items[0].monto, null)
+  check('extraer: a las 22:00 de Lima sigue siendo hoy en Lima', hoyEnLima(new Date('2026-09-19T03:00:00Z')), '2026-09-18')
 
   // --- dictado: el corpus ---------------------------------------------------
   // La puerta que impide que las reglas vuelvan a mentir. El número de frases

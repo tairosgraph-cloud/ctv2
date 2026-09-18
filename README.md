@@ -104,7 +104,7 @@ comentado al final de `supabase/migrations/0001_init.sql` tiene la versión list
 | `npm run typecheck` | Solo TypeScript                                       |
 | `npm run smoke`     | Pruebas de la lógica de negocio y del dictado (también en CI) |
 | `npm run voz -- "frase"` | Pasa una frase por el intérprete y enseña qué sacó |
-| `npm run voz:evaluar` | Mide el intérprete contra el corpus de frases (ver [Dictado](#dictado-cómo-se-mide)) |
+| `npm run voz:evaluar` | Mide el intérprete (reglas, o el modelo con `-- --motor llm`) contra el corpus de frases (ver [Dictado](#dictado-cómo-se-mide)) |
 
 ## Estructura
 
@@ -754,8 +754,8 @@ reglas, con el habla de mostrador («Rosita me dejó 50…», «pa' don Lucho»)
 
 | Control (40 frases) | Primera medición | Tras arreglar lo que destapó |
 | --- | --- | --- |
-| Afirmaciones falsas | 15 | 6 |
-| Frases seguras | 26/40 (65 %) | 34/40 (85 %) |
+| Afirmaciones falsas | 15 | 5 |
+| Frases seguras | 26/40 (65 %) | 35/40 (87,5 %) |
 | Frases aceptables | 3/40 | 7/40 |
 | Cifras fuera de la frase | 0 | 0 |
 
@@ -771,9 +771,88 @@ independiente**: antes de fiarse de otra comparación hace falta uno nuevo.
 npm run voz:evaluar -- --corpus scripts/corpus-dictado-control.jsonl
 ```
 
+Por eso hay un segundo control, `scripts/corpus-dictado-control-2.jsonl`:
+otras 40 frases escritas aparte, que las reglas han visto **una sola vez**, para
+medirlas. Es el examen del modelo y no se usa para afinar nada; si algún día
+se usa, habrá que escribir un tercero.
+
+| Control 2 (40 frases) | Reglas |
+| --- | --- |
+| Afirmaciones falsas | 4 |
+| Frases seguras | 36/40 (90 %) |
+| Frases aceptables | 6/40 (15 %) |
+| Ruta correcta | 38/40 |
+| Cifras fuera de la frase | 0 |
+
+Las reglas casi no mienten, pero con habla natural dejan casi todo por
+rellenar: 85 de cada 100 frases necesitan que alguien toque algo.
+
 `npm run smoke` falla si las reglas vuelven a afirmar algo falso sobre el
 corpus principal, si aparece una cifra fuera de la frase o si baja el número
 de frases aceptables.
+
+## Dictado con el modelo
+
+Con sesión iniciada, la frase va a la Edge Function `extraer-dictado`, que se
+la pasa a Claude (`claude-opus-5`) con un prompt y un JSON Schema fijos
+(`supabase/functions/_shared/dictado/`). La función no escribe en la base: solo
+devuelve la extracción. En el navegador (`src/lib/dictado/extraer.ts`) pasa
+lo mismo que con las reglas, y algo más:
+
+1. `validarExtraccion`: la guarda de cifras, igual que para las reglas.
+2. `cruzarConReglas`: si las reglas leen otra cifra para el mismo campo, o
+   vieron dos lecturas («2 millares a 180»: ¿180 o 360?) y el modelo eligió
+   una, no se afirma ninguna: se ofrecen las opciones.
+3. Si la función falla, tarda más de 6 s o devuelve algo que no tiene la forma
+   del esquema, se usan las reglas y se avisa. Sin Supabase o sin sesión, las
+   reglas sin aviso. Nunca lanza.
+
+### La clave
+
+Se crea en [console.anthropic.com](https://console.anthropic.com) → API Keys,
+**con límite de gasto mensual**. Vive en dos sitios y en ninguno más:
+
+- `.env.anthropic` en la raíz, con una línea `ANTHROPIC_API_KEY=…` (git ignora
+  `.env.*`). Lo usa el evaluador.
+- Los secretos de la función en Supabase.
+
+Nunca en una variable `VITE_` (acabaría en el JavaScript público), nunca en
+git, nunca pegada en un chat.
+
+### Medir antes de desplegar
+
+```bash
+npm run voz:evaluar -- --motor llm                        # corpus principal
+npm run voz:evaluar -- --motor llm --corpus scripts/corpus-dictado-control-2.jsonl
+npm run voz:evaluar -- --motor llm-solo                   # sin la segunda opinión
+npm run voz:evaluar -- --motor llm --esfuerzo medium      # más razonamiento
+```
+
+Cada corrida cuesta dinero de verdad (del orden de 1 a 2 céntimos de dólar por
+frase: unos US$ 2-3 el corpus principal) y el resumen imprime tokens, costo y
+latencia. Si ninguna llamada lee la caché del prompt, lo avisa. La latencia es
+la de la API desde esta máquina; en la app se suman la red y el arranque de la
+función.
+
+**Puerta para desplegar**: sobre los dos corpus, el modelo no afirma más cosas
+falsas que las reglas (ideal: ninguna) y gana en ruta y en frases aceptables,
+con p50 ≤ 3 s y p95 ≤ 6 s. Si no gana, no se despliega.
+
+### Desplegar la función
+
+```bash
+npx supabase login
+npx supabase link --project-ref uzimdlkildejgkflkpxi
+npx supabase secrets set --env-file .env.anthropic
+npx supabase functions deploy extraer-dictado
+```
+
+`supabase/config.toml` desactiva la verificación del JWT en la pasarela
+(`verify_jwt = false`) porque la hace la función: `auth.getClaims()` y rol
+`authenticated`. La clave pública sola no llega al modelo.
+
+Comprobación: sin sesión → 401; con sesión y texto vacío → 400; con sesión y
+una frase → 200 con la extracción, y la segunda llamada con caché leída.
 
 ### Añadir frases
 
