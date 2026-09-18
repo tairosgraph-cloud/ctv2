@@ -127,6 +127,8 @@ interface Candidato {
   unidad: boolean
   /** La palabra que cuenta, si es una cantidad: «banderolas», «docenas». */
   palabraUnidad: string
+  /** La palabra que va justo antes: «a 180» no dice lo mismo que «por 180». */
+  palabraAntes: string
 }
 
 /**
@@ -174,7 +176,7 @@ function clasificar(
   const descartado = !moneda && (digitos >= 7 || unidad || FECHA_DESPUES.test(despues))
   const palabraUnidad = unidad ? (colectivo ?? palabraDespues) : ''
 
-  return { value, peso, descartado, unidad, palabraUnidad } satisfies Candidato
+  return { value, peso, descartado, unidad, palabraUnidad, palabraAntes } satisfies Candidato
 }
 
 /** Todos los números de la frase —en dígitos y en palabras— ya puntuados. */
@@ -256,6 +258,26 @@ export function cifrasDeLaFrase(texto: string): Array<{ valor: number; descartad
   }))
 }
 
+/**
+ * «2 millares de volantes a 180»: ¿180 cada millar (360) o 180 por todo? En
+ * imprenta se usan las dos, así que no se elige: se devuelven las dos lecturas
+ * para que la persona escoja. Si la frase lo aclara («a 180 el millar», «por
+ * 180»), no hay duda y esto no aplica.
+ */
+export function colectivoAmbiguo(texto: string): { precio: number; cantidad: number } | null {
+  const lower = texto.toLowerCase()
+  if (precioUnitarioDicho(lower)) return null
+  const candidatos = candidatosDeMonto(lower)
+  const colectivos = candidatos.filter(
+    (c) => c.unidad && c.value >= 2 && raizDeUnidad(c.palabraUnidad) in COLECTIVOS,
+  )
+  const precios = new Set(
+    candidatos.filter((c) => !c.descartado && c.palabraAntes === 'a').map((c) => c.value),
+  )
+  if (colectivos.length !== 1 || precios.size !== 1) return null
+  return { precio: [...precios][0], cantidad: colectivos[0].value }
+}
+
 /** «4500 más igv»: ¿se registra 4500 o 5310? La frase no lo dice. */
 const MAS_IGV = /(?:m[aá]s|\+)\s*(?:el\s+)?igv(?![\p{L}])/iu
 
@@ -289,7 +311,8 @@ function deducirMonto(lower: string): number | null {
   const valores = new Set(vivos.filter((c) => c.peso === mejor).map((c) => c.value))
   // Dos precios distintos con el mismo respaldo ("300 soles y 500 soles"):
   // adivinar uno sería inventar un asiento.
-  return valores.size === 1 ? [...valores][0] : null
+  if (valores.size !== 1) return null
+  return colectivoAmbiguo(lower) ? null : [...valores][0]
 }
 
 // --- método de pago ---------------------------------------------------------

@@ -47,7 +47,10 @@ async function main() {
   const montoDictado = (frase: string) => parseVoiceEntry(frase).amount
   check('voz: el precio gana a la cantidad', montoDictado('mil volantes A6 por 240 soles'), 240)
   check('voz: cantidad en dígitos ignorada', montoDictado('1000 volantes por 240 soles'), 240)
-  check('voz: precio tras "a"', montoDictado('cliente Luis 2 millares a 180 soles'), 180)
+  check('voz: precio tras "a"', montoDictado('cliente Luis mil volantes a 180 soles'), 180)
+  // «2 millares a 180»: ¿180 cada millar o 180 por todo? No se elige.
+  check('voz: varios millares «a 180» no se adivina', montoDictado('cliente Luis 2 millares a 180 soles'), null)
+  check('voz: «a 180 el millar» sí es claro', montoDictado('cliente Luis 2 millares a 180 el millar'), 360)
   check('voz: "A6" no es un monto', montoDictado('volantes A6 por cincuenta soles'), 50)
   check('voz: S/ pegado al importe', montoDictado('ingreso de S/ 1,200.50 cliente Mary por banners'), 1200.5)
   check('voz: el teléfono no es un monto', montoDictado('cliente Juan 987654321 por volantes 50 soles'), 50)
@@ -168,6 +171,8 @@ async function main() {
   const dejo = reglas('para la señora nelly 3 docenas de recuerdos de bautizo dejó 50 nomás')
   check('reglas: «dejó 50» es un adelanto, no el precio', [dejo.pedido?.adelanto.monto, dejo.pedido?.items[0].monto], [50, null])
   check('reglas: «adelanto de sueldo» es un gasto pagado', [reglas('adelanto de sueldo a kevin 200 en efectivo').intent, reglas('adelanto de sueldo a kevin 200 en efectivo').pedido?.adelanto.tipo], ['egreso', 'total'])
+  check('reglas: «2 millares a 180» ofrece 180 o 360', reglas('dos millares de volantes a 180 para jhonatan en efectivo').ambiguedades,
+    [{ campo: 'items.0.monto', opciones: ['180', '360'] }])
   check('reglas: una pregunta es una consulta', reglas('cuánto vendí hoy').intent, 'consulta')
   check('reglas: una muletilla no toca nada', reglas('eh este un momento').intent, 'desconocido')
 

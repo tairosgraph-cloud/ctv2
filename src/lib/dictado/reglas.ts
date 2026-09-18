@@ -7,7 +7,7 @@
  * respaldo cuando no hay modelo —modo local, sin conexión, error— así que su
  * única obligación es no inventar nada, aunque deje muchos campos vacíos.
  */
-import { categoriaExplicita, cifrasDeLaFrase, parseVoiceEntry, tipoExplicito } from '@/lib/voiceParser'
+import { categoriaExplicita, cifrasDeLaFrase, colectivoAmbiguo, parseVoiceEntry, tipoExplicito } from '@/lib/voiceParser'
 import {
   CAMPOS,
   CATEGORIAS,
@@ -111,6 +111,11 @@ export function desdeReglas(texto: string): Extraccion {
   const intent = intencion(limpio, Boolean(p.amount ?? p.party ?? p.payment ?? categoria))
   const r = vacia(intent)
   const falta = (campo: string) => r.faltantes.push(campo)
+  // «2 millares a 180»: 180 o 360. Se ofrecen las dos para que elija la persona.
+  const dosLecturas = colectivoAmbiguo(limpio)
+  const opcionesColectivo = dosLecturas
+    ? [dosLecturas.precio, Math.round(dosLecturas.precio * dosLecturas.cantidad * 100) / 100].map(String)
+    : null
 
   switch (intent) {
     case 'consulta':
@@ -129,7 +134,8 @@ export function desdeReglas(texto: string): Extraccion {
         vigenciaDias: v === 'otra' ? null : v,
       }
       if (!p.party) falta(CAMPOS.cliente)
-      if (p.amount === null) falta(CAMPOS.total)
+      if (opcionesColectivo) r.ambiguedades.push({ campo: CAMPOS.total, opciones: opcionesColectivo })
+      else if (p.amount === null) falta(CAMPOS.total)
       if (v === 'otra') {
         // Dijo un plazo que el formulario no admite: que elija la persona.
         r.ambiguedades.push({ campo: CAMPOS.vigencia, opciones: ['7', '15', '30'] })
@@ -208,7 +214,8 @@ export function desdeReglas(texto: string): Extraccion {
   if (cobroSupuesto) r.supuestos.push(CAMPOS.cobro)
 
   if (!p.party) falta(CAMPOS.parte)
-  if (precio === null) falta(montoDeItem(0))
+  if (opcionesColectivo && precio === null) r.ambiguedades.push({ campo: montoDeItem(0), opciones: opcionesColectivo })
+  else if (precio === null) falta(montoDeItem(0))
   if (!p.payment && adelanto.tipo !== 'credito') falta(CAMPOS.pago)
   if (adelanto.tipo === 'parcial' && adelanto.monto === null) falta(CAMPOS.adelanto)
 
