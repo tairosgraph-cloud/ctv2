@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/Badge'
 import { EmptyRow } from '@/components/ui/EmptyRow'
 import { Pagination } from '@/components/ui/Pagination'
 import { usePagination } from '@/hooks/usePagination'
+import { usePermisos } from '@/hooks/usePermisos'
 import { money } from '@/lib/format'
 import { enlaceWhatsApp, mensaje } from '@/lib/whatsapp'
 import { useData } from '@/store/DataProvider'
@@ -12,6 +13,7 @@ import { NewDebtModal } from './NewDebtModal'
 
 export function DeudasView({ search }: { search: string }) {
   const { debts, stats, loading, workOrderById } = useData()
+  const { esGerente, puedeRegistrar } = usePermisos()
   const [kindFilter, setKindFilter] = useState<'ALL' | DebtKind>('ALL')
   const [onlyPending, setOnlyPending] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -165,6 +167,7 @@ export function DeudasView({ search }: { search: string }) {
                         <div className="flex items-center justify-center gap-1">
                           {d.balance > 0 ? (
                             <>
+                              {puedeRegistrar && (
                               <button
                                 type="button"
                                 onClick={() => setPaying(d)}
@@ -173,6 +176,7 @@ export function DeudasView({ search }: { search: string }) {
                                 <i className="fa-solid fa-hand-holding-dollar" aria-hidden="true" />
                                 Abonar
                               </button>
+                              )}
                               {d.kind === 'COBRAR' && (
                                 // El teléfono sale del pedido, si lo tiene; si no,
                                 // WhatsApp deja elegir el chat.
@@ -205,7 +209,7 @@ export function DeudasView({ search }: { search: string }) {
                             >
                               <i className="fa-solid fa-link text-xs" aria-hidden="true" />
                             </span>
-                          ) : (
+                          ) : esGerente ? (
                             <button
                               type="button"
                               onClick={() => setEditing(d)}
@@ -215,7 +219,7 @@ export function DeudasView({ search }: { search: string }) {
                             >
                               <i className="fa-solid fa-pen text-xs" aria-hidden="true" />
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                     </tr>

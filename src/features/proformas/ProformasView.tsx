@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/Badge'
 import { EmptyRow } from '@/components/ui/EmptyRow'
 import { Pagination } from '@/components/ui/Pagination'
 import { usePagination } from '@/hooks/usePagination'
+import { usePermisos } from '@/hooks/usePermisos'
 import { descargarLibro } from '@/lib/excel'
 import { libroProformas } from '@/lib/reports'
 import { useToast } from '@/hooks/useToast'
@@ -17,6 +18,7 @@ import { NewProformaModal } from './NewProformaModal'
 
 export function ProformasView({ search }: { search: string }) {
   const { proformas, stats, loading, anularProforma } = useData()
+  const { esGerente, puedeRegistrar } = usePermisos()
   const toast = useToast()
   const [localSearch, setLocalSearch] = useState('')
   const [creating, setCreating] = useState(false)
@@ -184,7 +186,9 @@ export function ProformasView({ search }: { search: string }) {
                     </td>
                     <td className="td pr-5">
                       <div className="flex items-center justify-center gap-1">
-                        {p.status === 'Vigente' ? (
+                        {p.status === 'Vigente' && !puedeRegistrar ? (
+                          <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">Vigente</span>
+                        ) : p.status === 'Vigente' ? (
                           <>
                             <button
                               type="button"
@@ -213,6 +217,7 @@ export function ProformasView({ search }: { search: string }) {
                             >
                               <i className="fa-brands fa-whatsapp text-sm" aria-hidden="true" />
                             </a>
+                            {esGerente && (
                             <button
                               type="button"
                               onClick={() => setEditing(p)}
@@ -222,6 +227,8 @@ export function ProformasView({ search }: { search: string }) {
                             >
                               <i className="fa-solid fa-pen text-xs" aria-hidden="true" />
                             </button>
+                            )}
+                            {esGerente && (
                             <button
                               type="button"
                               onClick={() => void anular(p)}
@@ -231,6 +238,7 @@ export function ProformasView({ search }: { search: string }) {
                             >
                               <i className="fa-solid fa-ban text-xs" aria-hidden="true" />
                             </button>
+                            )}
                           </>
                         ) : (
                           <span

@@ -3,6 +3,7 @@ import { Badge, type BadgeTone } from '@/components/ui/Badge'
 import { EmptyRow } from '@/components/ui/EmptyRow'
 import { Pagination } from '@/components/ui/Pagination'
 import { usePagination } from '@/hooks/usePagination'
+import { usePermisos } from '@/hooks/usePermisos'
 import { StatCard } from '@/components/ui/StatCard'
 import { AbonoModal } from '@/features/deudas/AbonoModal'
 import { useToast } from '@/hooks/useToast'
@@ -30,6 +31,7 @@ export function RegistroView({ search }: { search: string }) {
     loading,
   } = useData()
   const toast = useToast()
+  const { esGerente, puedeRegistrar } = usePermisos()
   const [typeFilter, setTypeFilter] = useState<'ALL' | TxType>('ALL')
   const [localSearch, setLocalSearch] = useState('')
   const [paying, setPaying] = useState<Debt | null>(null)
@@ -172,10 +174,12 @@ export function RegistroView({ search }: { search: string }) {
               <option value="Ingreso">Ingresos</option>
               <option value="Egreso">Egresos</option>
             </select>
-            <button type="button" onClick={() => setCreating(true)} className="btn-primary">
-              <i className="fa-solid fa-plus" aria-hidden="true" />
-              Nueva orden
-            </button>
+            {puedeRegistrar && (
+              <button type="button" onClick={() => setCreating(true)} className="btn-primary">
+                <i className="fa-solid fa-plus" aria-hidden="true" />
+                Nueva orden
+              </button>
+            )}
           </div>
         </div>
 
@@ -303,7 +307,7 @@ export function RegistroView({ search }: { search: string }) {
                             tenga asiento detrás o no: tanto un PENDIENTE como
                             un PARCIAL se terminan de cobrar desde aquí.
                           */}
-                          {row.pending > 0 && row.debt && (
+                          {row.pending > 0 && row.debt && puedeRegistrar && (
                             <button
                               type="button"
                               onClick={() => setPaying(row.debt)}
@@ -315,7 +319,7 @@ export function RegistroView({ search }: { search: string }) {
                             </button>
                           )}
 
-                          {row.workOrder && !anulado && (
+                          {row.workOrder && !anulado && esGerente && (
                             <button
                               type="button"
                               onClick={() => abrirEdicion(row)}
@@ -327,7 +331,7 @@ export function RegistroView({ search }: { search: string }) {
                             </button>
                           )}
 
-                          {row.transaction && !anulado && (
+                          {row.transaction && !anulado && esGerente && (
                             <button
                               type="button"
                               onClick={() =>
@@ -341,7 +345,7 @@ export function RegistroView({ search }: { search: string }) {
                             </button>
                           )}
 
-                          {row.transaction && (
+                          {row.transaction && esGerente && (
                             <button
                               type="button"
                               onClick={() =>

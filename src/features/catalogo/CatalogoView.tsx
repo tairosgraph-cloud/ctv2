@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
+import { usePermisos } from '@/hooks/usePermisos'
 import { useToast } from '@/hooks/useToast'
 import { describirLinea, totalDe, unidadEn } from '@/lib/catalogo'
 import { money, parseAmount } from '@/lib/format'
@@ -15,6 +16,7 @@ import { CATEGORIES, UNIDADES, type Producto, type Unidad } from '@/types'
  */
 export function CatalogoView({ search }: { search: string }) {
   const { productos, loading, borrarProducto } = useData()
+  const { esGerente } = usePermisos()
   const toast = useToast()
   const [editando, setEditando] = useState<Producto | 'nuevo' | null>(null)
   const [local, setLocal] = useState('')
@@ -47,10 +49,12 @@ export function CatalogoView({ search }: { search: string }) {
             disabled={Boolean(search)}
             className="w-44 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-brand-500 disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950"
           />
-          <button type="button" onClick={() => setEditando('nuevo')} className="btn-primary">
-            <i className="fa-solid fa-plus" aria-hidden="true" />
-            Nuevo producto
-          </button>
+          {esGerente && (
+            <button type="button" onClick={() => setEditando('nuevo')} className="btn-primary">
+              <i className="fa-solid fa-plus" aria-hidden="true" />
+              Nuevo producto
+            </button>
+          )}
         </div>
       </div>
 
@@ -68,7 +72,7 @@ export function CatalogoView({ search }: { search: string }) {
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {visibles.map((p) => (
-            <Ficha key={p.id} producto={p} onEditar={() => setEditando(p)} onBorrar={() => void borrar(p)} />
+            <Ficha key={p.id} producto={p} editable={esGerente} onEditar={() => setEditando(p)} onBorrar={() => void borrar(p)} />
           ))}
         </div>
       )}
@@ -84,7 +88,17 @@ export function CatalogoView({ search }: { search: string }) {
   )
 }
 
-function Ficha({ producto, onEditar, onBorrar }: { producto: Producto; onEditar: () => void; onBorrar: () => void }) {
+function Ficha({
+  producto,
+  editable,
+  onEditar,
+  onBorrar,
+}: {
+  producto: Producto
+  editable: boolean
+  onEditar: () => void
+  onBorrar: () => void
+}) {
   const [cantidad, setCantidad] = useState('')
   const n = parseAmount(cantidad)
   const total = n > 0 ? totalDe(producto, n) : null
@@ -98,7 +112,7 @@ function Ficha({ producto, onEditar, onBorrar }: { producto: Producto; onEditar:
             {!producto.activo && ' · inactivo'}
           </p>
         </div>
-        <span className="flex shrink-0 gap-1">
+        <span className={`flex shrink-0 gap-1${editable ? '' : ' hidden'}`}>
           <button type="button" onClick={onEditar} aria-label={`Editar ${producto.nombre}`} className="rounded p-1 text-slate-400 hover:text-brand-700 dark:hover:text-brand-300">
             <i className="fa-solid fa-pen text-xs" aria-hidden="true" />
           </button>

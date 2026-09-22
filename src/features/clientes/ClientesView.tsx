@@ -6,6 +6,7 @@ import { Pagination } from '@/components/ui/Pagination'
 import { AbonoModal } from '@/features/deudas/AbonoModal'
 import { NewOrderModal } from '@/features/registro/NewOrderModal'
 import { usePagination } from '@/hooks/usePagination'
+import { usePermisos } from '@/hooks/usePermisos'
 import { useToast } from '@/hooks/useToast'
 import { money, shortDateTime } from '@/lib/format'
 import { normalizar } from '@/lib/partes'
@@ -28,6 +29,7 @@ interface Resumen {
  */
 export function ClientesView({ search }: { search: string }) {
   const { clientes, workOrders, debts, proformas, loading } = useData()
+  const { puedeRegistrar } = usePermisos()
   const [filtro, setFiltro] = useState<Filtro>('clientes')
   const [local, setLocal] = useState('')
   const [abierto, setAbierto] = useState<Cliente | null>(null)
@@ -99,10 +101,12 @@ export function ClientesView({ search }: { search: string }) {
               <option value="proveedores">Proveedores</option>
               <option value="todos">Todos</option>
             </select>
-            <button type="button" onClick={() => setCreando(true)} className="btn-primary">
-              <i className="fa-solid fa-plus" aria-hidden="true" />
-              Nuevo
-            </button>
+            {puedeRegistrar && (
+              <button type="button" onClick={() => setCreando(true)} className="btn-primary">
+                <i className="fa-solid fa-plus" aria-hidden="true" />
+                Nuevo
+              </button>
+            )}
           </div>
         </div>
 
