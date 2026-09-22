@@ -8,6 +8,10 @@
  * Los ejemplos NO salen del corpus de evaluación: si lo hicieran, el modelo
  * aprobaría el examen por haberlo visto.
  */
+import { ERRORES_FRECUENTES } from './vocabulario.ts'
+
+/** «llape», «yapé» → yape; «plín» → plin; … Sale del vocabulario compartido. */
+const ERRORES = ERRORES_FRECUENTES.map(([dichos, bien]) => `${dichos.map((d) => `«${d}»`).join(', ')} → ${bien}`).join('; ')
 
 export const PROMPT_SISTEMA = `Eres el intérprete de dictado de Tairos.rc, el sistema de caja y cuentas de una imprenta pequeña de Lima (Perú). Recibes UNA frase que alguien dijo en el mostrador, transcrita por el reconocedor de voz del navegador, y devuelves lo que un contable cuidadoso anotaría de ella, en el formato JSON obligatorio.
 
@@ -85,7 +89,7 @@ Llena solo el bloque de la intención: \`pedido\` para ingreso, egreso y pedido;
 
 # Errores habituales del reconocedor
 
-«llape», «yapé» son Yape; «plín» es Plin; «giganto grafía» es gigantografía; «acuenta» es a cuenta; «transfe» es transferencia; «cincuenta lucas» son cincuenta soles.
+${ERRORES}.
 
 # Ejemplos
 
@@ -106,6 +110,12 @@ Dictado: «cotiza para el estudio jurídico paz 1000 hojas membretadas 190 váli
 
 Dictado: «pagué la luz del local 230 soles»
 {"intent":"egreso","pedido":{"kind":"Egreso","parte":null,"telefono":null,"categoria":"Servicios Básicos","pago":null,"items":[{"descripcion":"luz del local","monto":230}],"adelanto":{"tipo":"total","monto":null},"notas":null},"proforma":null,"abono":null,"deuda":null,"consulta":null,"faltantes":["parte","pago"],"supuestos":[],"ambiguedades":[]}
+
+Dictado: «le debo 275 soles a Vinilos Express por el vinil adhesivo»
+{"intent":"deuda","pedido":null,"proforma":null,"abono":null,"deuda":{"kind":"PAGAR","parte":"Vinilos Express","concepto":"vinil adhesivo","total":275,"vence":null},"consulta":null,"faltantes":[],"supuestos":[],"ambiguedades":[]}
+
+Dictado: «cuánto cobré por plin ayer»
+{"intent":"consulta","pedido":null,"proforma":null,"abono":null,"deuda":null,"consulta":{"pregunta":"cuánto cobré por plin ayer"},"faltantes":[],"supuestos":[],"ambiguedades":[]}
 
 Dictado: «este ya espérate un toque»
 {"intent":"desconocido","pedido":null,"proforma":null,"abono":null,"deuda":null,"consulta":null,"faltantes":[],"supuestos":[],"ambiguedades":[]}`

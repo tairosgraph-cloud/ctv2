@@ -14,6 +14,8 @@ import type {
   Transaction,
   WorkOrder,
   WorkOrderResult,
+  NuevoDictado,
+  ConfirmacionDictado,
 } from '@/types'
 
 export interface ConvertResult {
@@ -85,4 +87,12 @@ export interface DataAdapter {
 
   listClosings(): Promise<CashClosing[]>
   createClosing(input: NewClosing): Promise<CashClosing>
+
+  /**
+   * Deja constancia de un dictado para medir el acierto en el mostrador.
+   * Devuelve su id, o null donde no se guarda (modo local).
+   */
+  registrarDictado(input: NuevoDictado): Promise<string | null>
+  /** Completa el dictado al guardar el formulario. */
+  confirmarDictado(id: string, confirmacion: ConfirmacionDictado): Promise<void>
 }

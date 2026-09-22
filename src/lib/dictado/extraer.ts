@@ -25,7 +25,7 @@ export const hoyEnLima = (ahora = new Date()) =>
 export type Invocar = (
   cuerpo: { texto: string; hoy: string },
   signal: AbortSignal,
-) => Promise<{ data: unknown; error: unknown }>
+) => Promise<{ data: unknown; error: unknown; /** Estado HTTP de la respuesta, si lo hubo. */ estado?: number }>
 
 export interface ResultadoDictado {
   extraccion: Extraccion
@@ -35,10 +35,17 @@ export interface ResultadoDictado {
   aviso: string | null
   /** Qué modelo respondió (con fallback de servidor puede no ser el pedido). */
   modelo: string | null
+  /** Tokens de la llamada, para la auditoría; null si no hubo modelo. */
+  uso: { entrada: number; cacheLectura: number; salida: number } | null
 }
 
 const NO_RESPONDIO = 'El intérprete inteligente no respondió; usé el básico.'
 const TARDO = 'El intérprete inteligente tardó demasiado; usé el básico.'
+/** Lo que la función dice con su estado, cuando no es un fallo cualquiera. */
+const POR_ESTADO: Record<number, string> = {
+  403: 'Tu cuenta no tiene permiso para el intérprete inteligente; usé el básico.',
+  429: 'Se acabó el cupo diario del intérprete inteligente; hasta mañana uso el básico.',
+}
 
 /** Lo que se devuelve si ni las reglas pueden: nada afirmado, nada tocado. */
 const sinEntender = (): Extraccion => ({
@@ -64,6 +71,9 @@ const conReglas = (texto: string): Extraccion => {
 }
 
 const esObjeto = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
+const entero = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : 0)
+const leerUso = (v: unknown): ResultadoDictado['uso'] =>
+  esObjeto(v) ? { entrada: entero(v.entrada), cacheLectura: entero(v.cacheLectura), salida: entero(v.salida) } : null
 
 export async function extraerCon(
   texto: string,
@@ -77,6 +87,7 @@ export async function extraerCon(
     ms: ms(),
     aviso,
     modelo: null,
+    uso: null,
   })
 
   if (!invocar) return reglas(null)
@@ -95,7 +106,8 @@ export async function extraerCon(
     const respuesta = await Promise.race([invocar({ texto, hoy: hoyEnLima() }, control.signal), vencido])
     if (respuesta === 'vencido') return reglas(TARDO)
     const datos = respuesta.data
-    if (respuesta.error || !esObjeto(datos) || !tieneForma(datos.extraccion)) return reglas(NO_RESPONDIO)
+    if (respuesta.error) return reglas(POR_ESTADO[respuesta.estado ?? 0] ?? NO_RESPONDIO)
+    if (!esObjeto(datos) || !tieneForma(datos.extraccion)) return reglas(NO_RESPONDIO)
 
     const delModelo = validarExtraccion({ ...datos.extraccion, origen: 'llm', esquema: 1 }, texto)
     return {
@@ -103,6 +115,7 @@ export async function extraerCon(
       ms: ms(),
       aviso: null,
       modelo: typeof datos.modelo === 'string' ? datos.modelo : null,
+      uso: leerUso(datos.uso),
     }
   } catch {
     return reglas(control.signal.aborted ? TARDO : NO_RESPONDIO)

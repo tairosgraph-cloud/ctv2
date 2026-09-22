@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
+import { AvisoDictado } from '@/components/dictado/AvisoDictado'
 import { Modal } from '@/components/ui/Modal'
 import { WorkOrderBreakdown } from '@/components/ui/WorkOrderBreakdown'
 import { db } from '@/data'
+import { useCamposDictados } from '@/hooks/useCamposDictados'
+import { useDictado, type Borrador } from '@/hooks/useDictado'
 import { useToast } from '@/hooks/useToast'
+import { formularioDeAbono, type Duda } from '@/lib/dictado/formulario'
 import { money, parseAmount, shortDateTime } from '@/lib/format'
 import { useData } from '@/store/DataProvider'
 import { PAYMENT_METHODS, type Debt, type DebtPayment, type PaymentMethod } from '@/types'
@@ -10,6 +14,8 @@ import { PAYMENT_METHODS, type Debt, type DebtPayment, type PaymentMethod } from
 interface Props {
   debt: Debt | null
   onClose: () => void
+  /** Si viene, el abono arranca con el monto y el método dictados. */
+  dictado?: Borrador | null
 }
 
 /**
@@ -18,18 +24,30 @@ interface Props {
  * En el prototipo el boton "Abonar" ejecutaba `Math.min(saldo, saldo)`, es
  * decir liquidaba siempre el 100% aunque la UI prometiera abonos parciales.
  */
-export function AbonoModal({ debt, onClose }: Props) {
+export function AbonoModal({ debt, onClose, dictado = null }: Props) {
   const { abonarDeuda, borrarAbono } = useData()
+  const { confirmar } = useDictado()
   const toast = useToast()
-  const [amount, setAmount] = useState('')
-  const [method, setMethod] = useState<PaymentMethod>('Efectivo')
+  const [arranque] = useState(() => (dictado ? formularioDeAbono(dictado.resultado.extraccion) : null))
+  const [amount, setAmount] = useState(arranque?.monto ?? '')
+  const [method, setMethod] = useState<PaymentMethod>(arranque?.pago ?? 'Efectivo')
   const [history, setHistory] = useState<DebtPayment[]>([])
   const [saving, setSaving] = useState(false)
+  const campos = useCamposDictados(arranque?.marcas)
+  const [dudas, setDudas] = useState<Duda[]>(arranque?.dudas ?? [])
+  const [faltantes, setFaltantes] = useState(arranque?.faltantes ?? [])
+
+  const editar = (campo: string) => {
+    campos.editar(campo)
+    setDudas((actual) => actual.filter((d) => d.campo !== campo))
+  }
 
   useEffect(() => {
     if (!debt) return
-    setAmount('')
-    setMethod('Efectivo')
+    // Al cambiar de cuenta, el formulario vuelve a empezar; con un dictado,
+    // desde lo dictado.
+    setAmount(arranque?.monto ?? '')
+    setMethod(arranque?.pago ?? 'Efectivo')
     let alive = true
     void db
       .listDebtPayments(debt.id)
@@ -42,7 +60,7 @@ export function AbonoModal({ debt, onClose }: Props) {
     return () => {
       alive = false
     }
-  }, [debt])
+  }, [debt, arranque])
 
   if (!debt) return null
 
@@ -73,6 +91,9 @@ export function AbonoModal({ debt, onClose }: Props) {
     setSaving(true)
     try {
       await abonarDeuda(debt.id, value, method)
+      if (dictado && arranque) {
+        confirmar(dictado, { camposEditados: campos.camposEditados(), registroTipo: 'abono', registroId: debt.id })
+      }
       toast.success(
         value >= debt.balance
           ? `Cuenta de ${debt.party} liquidada`
@@ -129,6 +150,27 @@ export function AbonoModal({ debt, onClose }: Props) {
           </div>
         </div>
 
+        {dictado && arranque && (
+          <AvisoDictado
+            origen={dictado.resultado.extraccion.origen}
+            aviso={dictado.resultado.aviso}
+            marcados={campos.marcados.size}
+            dudas={dudas}
+            faltantes={faltantes}
+            supuestos={[]}
+            onElegir={(campo, valor) => {
+              if (campo === 'monto') setAmount(valor)
+              else if (campo === 'pago') setMethod(valor as PaymentMethod)
+              campos.quitar(campo)
+              setDudas((actual) => actual.filter((d) => d.campo !== campo))
+            }}
+            onRevisado={() => {
+              campos.revisar()
+              setFaltantes([])
+            }}
+          />
+        )}
+
         <p className="px-1 text-xs text-slate-600 dark:text-slate-300">{debt.concept}</p>
 
         <WorkOrderBreakdown workOrderId={debt.workOrderId} />
@@ -141,10 +183,14 @@ export function AbonoModal({ debt, onClose }: Props) {
             id="abono-amount"
             inputMode="decimal"
             value={amount}
-            onChange={(event) => setAmount(event.target.value)}
+            onChange={(event) => {
+              setAmount(event.target.value)
+              editar('monto')
+            }}
             placeholder="0.00"
             autoFocus
-            className={`field text-base font-bold ${excede ? 'border-rose-400 bg-rose-50 dark:bg-rose-500/10' : ''}`}
+            className={`field text-base font-bold ${excede ? 'border-rose-400 bg-rose-50 dark:bg-rose-500/10' : campos.clase('monto')}`}
+            {...campos.describe('monto')}
           />
           <div className="mt-1.5 flex items-center justify-between gap-2">
             <p className={`text-[11px] ${excede ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-slate-500'}`}>
@@ -152,7 +198,10 @@ export function AbonoModal({ debt, onClose }: Props) {
             </p>
             <button
               type="button"
-              onClick={() => setAmount(debt.balance.toFixed(2))}
+              onClick={() => {
+                setAmount(debt.balance.toFixed(2))
+                editar('monto')
+              }}
               className="shrink-0 rounded-lg bg-brand-50 dark:bg-brand-500/10 px-2 py-1 text-[11px] font-bold text-brand-800 dark:text-brand-300 transition-colors hover:bg-brand-100 dark:hover:bg-brand-500/20"
             >
               {isCobrar ? 'Ya pagó todo' : 'Pagar todo'} · {money(debt.balance)}
@@ -167,8 +216,12 @@ export function AbonoModal({ debt, onClose }: Props) {
           <select
             id="abono-method"
             value={method}
-            onChange={(event) => setMethod(event.target.value as PaymentMethod)}
-            className="field"
+            onChange={(event) => {
+              setMethod(event.target.value as PaymentMethod)
+              editar('pago')
+            }}
+            className={`field${campos.clase('pago')}`}
+            {...campos.describe('pago')}
           >
             {PAYMENT_METHODS.map((p) => (
               <option key={p} value={p}>

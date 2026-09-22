@@ -7,7 +7,14 @@
  * respaldo cuando no hay modelo —modo local, sin conexión, error— así que su
  * única obligación es no inventar nada, aunque deje muchos campos vacíos.
  */
-import { categoriaExplicita, cifrasDeLaFrase, colectivoAmbiguo, parseVoiceEntry, tipoExplicito } from '@/lib/voiceParser'
+import {
+  categoriaExplicita,
+  cifrasDeLaFrase,
+  colectivoAmbiguo,
+  hayPrecioUnitario,
+  parseVoiceEntry,
+  tipoExplicito,
+} from '@/lib/voiceParser'
 import {
   CAMPOS,
   CATEGORIAS,
@@ -20,8 +27,15 @@ import {
 } from '../../../supabase/functions/_shared/dictado/tipos.ts'
 import { normalizarDictado, palabra } from '../../../supabase/functions/_shared/dictado/vocabulario.ts'
 
-const NUMERO =
-  'un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien|ciento|doscientos|trescientos|cuatrocientos|quinientos|seiscientos|setecientos|ochocientos|novecientos|mil'
+const NUMERO = [
+  'un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince',
+  'dieciseis|dieciséis|diecisiete|dieciocho|diecinueve|veinte',
+  'veintiuno|veintiún|veintiuna|veintidos|veintidós|veintitres|veintitrés|veinticuatro|veinticinco',
+  'veintiseis|veintiséis|veintisiete|veintiocho|veintinueve',
+  'treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien|ciento',
+  'doscientos|trescientos|cuatrocientos|quinientos|seiscientos|setecientos|ochocientos|novecientos',
+  'doscientas|trescientas|cuatrocientas|quinientas|seiscientas|setecientas|ochocientas|novecientas|mil',
+].join('|')
 /** Las mismas, sin «un/uno/una»: sueltas son artículos («dejó un encargo»). */
 const NUMERO_SIN_UNO = NUMERO.split('|')
   .filter((w) => w !== 'un' && w !== 'uno' && w !== 'una')
@@ -38,19 +52,19 @@ const PISTA_DEUDA_COBRAR = palabra('me\\s+debe|nos\\s+debe|(?:me\\s+)?qued[oó]\
 const PISTA_DEUDA_PAGAR = palabra('le\\s+debo|le\\s+debemos|debo\\s+a|debemos\\s+a|le\\s+qued[eé]\\s+debiendo')
 const PISTA_CREDITO = palabra('al\\s+cr[eé]dito|fiad[oa]|sin\\s+adelanto|no\\s+(?:pag[oó]|dej[oó])\\s+nada')
 const PISTA_ADELANTO = palabra(
-  `adelant\\p{L}*|a\\s+cuenta|saldo|el\\s+resto|dej[oó]\\s+(?:s\\/\\.?\\s*)?(?:\\d+|${NUMERO_SIN_UNO})`,
+  `adelant\\p{L}*|a\\s+cuenta|saldo|el\\s+resto|dej(?:[oóa]|an|aron)\\s+(?:s\\/\\.?\\s*)?(?:\\d+|${NUMERO_SIN_UNO})`,
 )
 /** «Adelanto de sueldo» es un gasto de planilla, no el adelanto de un pedido. */
 const ADELANTO_DE_SUELDO = palabra('adelanto\\s+de\\s+(?:sueldo|quincena|planilla|pago\\s+al\\s+personal)')
 /**
  * La cifra pegada a su palabra: «adelanto de 100», «adelantó 100», «100 a
- * cuenta», «pagó 80 y el resto a la entrega», «dejó 50».
+ * cuenta», «pagó 80 y el resto a la entrega», «dejó 50», «deja 20».
  */
 const ADELANTO_CON_CIFRA = new RegExp(
   `(?<![\\p{L}\\d])(?:adelant\\p{L}*|a\\s+cuenta)\\s+(?:de\\s+)?(?:s\\/\\.?\\s*)?(${CIFRA})(?![\\p{L}\\d])` +
     `|(?<![\\p{L}\\d])(${CIFRA})\\s+(?:soles?\\s+)?(?:de\\s+adelanto|a\\s+cuenta)(?![\\p{L}\\d])` +
     `|(?<![\\p{L}\\d])pag[oó]\\s+(?:s\\/\\.?\\s*)?(${CIFRA})\\s+(?:soles?\\s+)?y\\s+el\\s+resto(?![\\p{L}])` +
-    `|(?<![\\p{L}\\d])dej[oó]\\s+(?:s\\/\\.?\\s*)?(${CIFRA})(?![\\p{L}\\d])`,
+    `|(?<![\\p{L}\\d])dej(?:[oóa]|an|aron)\\s+(?:s\\/\\.?\\s*)?(${CIFRA})(?![\\p{L}\\d])`,
   'iu',
 )
 const PREGUNTA = new RegExp(
@@ -65,13 +79,62 @@ const esCategoria = (c: string | null): c is Categoria =>
 
 const valorDe = (cifra: string): number | null => cifrasDeLaFrase(cifra)[0]?.valor ?? null
 
+/** «2 por 1», «tres por uno», «40 x 60»: medidas, no precios. */
+const MEDIDA = new RegExp(
+  `(?<![\\p{L}\\d])(\\d+(?:[.,]\\d+)?|${NUMERO})\\s*(?:x|por)\\s*(\\d+(?:[.,]\\d+)?|${NUMERO})(?![\\p{L}\\d])(?!\\s*(?:soles?|lucas|s\\/))`,
+  'giu',
+)
+
+/**
+ * Los precios que la frase dice además del de la línea. Aparta lo que no es un
+ * precio de trabajo: cantidades, medidas, el celular, el adelanto y el precio
+ * por unidad del que sale la línea. Si queda alguno, la frase habla de varios
+ * trabajos con su precio cada uno («95 por el empastado y 15 por el
+ * anillado») y una sola línea no puede llevar solo uno.
+ */
+function otrosPrecios(texto: string, precio: number, adelanto: number | null): number[] {
+  const medidas = new Set<number>()
+  for (const m of texto.matchAll(MEDIDA)) {
+    for (const lado of [m[1], m[2]]) {
+      const v = valorDe(lado) ?? Number(lado.replace(',', '.'))
+      if (Number.isFinite(v)) medidas.add(v)
+    }
+  }
+  const celular = new Set((texto.match(CELULAR)?.[0].match(/\d+/g) ?? []).map(Number))
+  const unitario = hayPrecioUnitario(texto)
+  const otros = new Set<number>()
+  for (const c of cifrasDeLaFrase(texto)) {
+    if (c.descartada || c.cantidad || c.valor === precio || c.valor === adelanto) continue
+    if (medidas.has(c.valor) || celular.has(c.valor)) continue
+    // «3 sellos a 35 cada uno»: la línea vale 105 y el 35 es de donde sale.
+    if (unitario && (c.palabraAntes === 'a' || Number.isInteger(Math.round((precio / c.valor) * 1000) / 1000))) continue
+    otros.add(c.valor)
+  }
+  return [...otros]
+}
+
+/**
+ * «dejó 50» es un adelanto; «dejan dos millares de volantes», un encargo: lo
+ * que sigue a «deja» tiene que ser dinero, no una cantidad de algo.
+ */
+const DEJA_ALGO = /(?<![\p{L}\d])dej(?:[oóa]|an|aron)\s+/iu
+function hayAdelanto(texto: string): boolean {
+  if (!PISTA_ADELANTO.test(texto)) return false
+  if (palabra('adelant\\p{L}*|a\\s+cuenta|saldo|el\\s+resto').test(texto)) return true
+  const m = DEJA_ALGO.exec(texto)
+  if (!m) return true
+  // Lo que viene justo detrás: «dos millares de…» cuenta cosas, «50 nomás» es dinero.
+  const detras = texto.slice((m.index ?? 0) + m[0].length).split(/\s+/).slice(0, 3).join(' ')
+  return !cifrasDeLaFrase(detras).some((c) => c.cantidad)
+}
+
 function intencion(texto: string, hayContenido: boolean): Intencion {
   if (texto.includes('?') || PREGUNTA.test(texto)) return 'consulta'
   if (PISTA_PROFORMA.test(texto)) return 'proforma'
   if (PISTA_ABONO.test(texto)) return 'abono'
   if (PISTA_DEUDA_COBRAR.test(texto) || PISTA_DEUDA_PAGAR.test(texto)) return 'deuda'
   if (ADELANTO_DE_SUELDO.test(texto)) return 'egreso'
-  if (PISTA_CREDITO.test(texto) || PISTA_ADELANTO.test(texto)) return 'pedido'
+  if (PISTA_CREDITO.test(texto) || hayAdelanto(texto)) return 'pedido'
   const tipo = tipoExplicito(texto)
   if (tipo === 'Egreso') return 'egreso'
   if (tipo === 'Ingreso' || hayContenido) return 'ingreso'
@@ -172,7 +235,7 @@ export function desdeReglas(texto: string): Extraccion {
 
   if (PISTA_CREDITO.test(limpio)) {
     adelanto = { tipo: 'credito', monto: 0 }
-  } else if (PISTA_ADELANTO.test(limpio) && !ADELANTO_DE_SUELDO.test(limpio)) {
+  } else if (hayAdelanto(limpio) && !ADELANTO_DE_SUELDO.test(limpio)) {
     const m = limpio.match(ADELANTO_CON_CIFRA)
     const cifra = m ? (m[1] ?? m[2] ?? m[3] ?? m[4]) : undefined
     if (m && cifra) {
@@ -195,6 +258,19 @@ export function desdeReglas(texto: string): Extraccion {
     cobroSupuesto = tipo === null
   }
 
+  // Dos trabajos con su precio cada uno no caben en una línea: quedarse con uno
+  // registraría de menos. Se ofrecen los precios dichos y su suma.
+  let opcionesVarios: string[] | null = null
+  if (precio !== null) {
+    const otros = otrosPrecios(limpio, precio, adelanto.tipo === 'parcial' ? adelanto.monto : null)
+    if (otros.length) {
+      const todos = [precio, ...otros]
+      const suma = Math.round(todos.reduce((a, b) => a + b, 0) * 100) / 100
+      opcionesVarios = [...new Set([...todos, suma])].sort((a, b) => a - b).map(String)
+      precio = null
+    }
+  }
+
   const kind = tipo ?? (intent === 'egreso' ? 'Egreso' : 'Ingreso')
   // Con el tipo ya decidido: el vinil que se compra es material, no una venta.
   const categoriaDelRegistro = categoriaExplicita(limpio, kind)
@@ -215,6 +291,7 @@ export function desdeReglas(texto: string): Extraccion {
 
   if (!p.party) falta(CAMPOS.parte)
   if (opcionesColectivo && precio === null) r.ambiguedades.push({ campo: montoDeItem(0), opciones: opcionesColectivo })
+  else if (opcionesVarios) r.ambiguedades.push({ campo: montoDeItem(0), opciones: opcionesVarios })
   else if (precio === null) falta(montoDeItem(0))
   if (!p.payment && adelanto.tipo !== 'credito') falta(CAMPOS.pago)
   if (adelanto.tipo === 'parcial' && adelanto.monto === null) falta(CAMPOS.adelanto)

@@ -1,4 +1,5 @@
 import { Modal } from '@/components/ui/Modal'
+import type { Borrador } from '@/hooks/useDictado'
 import type { WorkOrder } from '@/types'
 import { LedgerForm } from './LedgerForm'
 
@@ -7,6 +8,8 @@ interface Props {
   onClose: () => void
   /** Si viene, el modal corrige ese pedido en vez de crear uno nuevo. */
   editing?: WorkOrder | null
+  /** Si viene, el formulario arranca con lo dictado. */
+  dictado?: Borrador | null
 }
 
 /**
@@ -14,12 +17,12 @@ interface Props {
  * ancho a la tabla. Sirve para las dos cosas: registrar una orden nueva y
  * corregir una ya guardada.
  */
-export function NewOrderModal({ open, onClose, editing = null }: Props) {
+export function NewOrderModal({ open, onClose, editing = null, dictado = null }: Props) {
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={editing ? 'Corregir orden' : 'Nuevo Orden'}
+      title={editing ? 'Corregir orden' : dictado ? 'Orden dictada' : 'Nueva orden'}
       subtitle={
         editing
           ? 'Se reajustan el asiento y el saldo pendiente'
@@ -27,10 +30,11 @@ export function NewOrderModal({ open, onClose, editing = null }: Props) {
       }
       icon={editing ? 'fa-pen' : 'fa-file-pen'}
     >
-      {/* key fuerza un formulario limpio al cambiar de pedido */}
+      {/* key fuerza un formulario limpio al cambiar de pedido o de dictado */}
       <LedgerForm
-        key={editing?.id ?? 'nuevo'}
+        key={editing?.id ?? (dictado ? `dictado-${dictado.id}` : 'nuevo')}
         editing={editing}
+        dictado={dictado}
         onSaved={onClose}
         onCancel={onClose}
       />

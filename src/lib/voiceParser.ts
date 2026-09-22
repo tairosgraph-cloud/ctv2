@@ -13,11 +13,20 @@ export interface ParsedEntry {
 const NUMBER_WORDS: Record<string, number> = {
   cero: 0, un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5,
   seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12,
-  trece: 13, catorce: 14, quince: 15, veinte: 20, treinta: 30, cuarenta: 40,
+  trece: 13, catorce: 14, quince: 15,
+  dieciseis: 16, dieciséis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19, veinte: 20,
+  veintiuno: 21, veintiún: 21, veintiuna: 21, veintidos: 22, veintidós: 22, veintitres: 23,
+  veintitrés: 23, veinticuatro: 24, veinticinco: 25, veintiseis: 26, veintiséis: 26,
+  veintisiete: 27, veintiocho: 28, veintinueve: 29,
+  treinta: 30, cuarenta: 40,
   cincuenta: 50, sesenta: 60, setenta: 70, ochenta: 80, noventa: 90,
   cien: 100, ciento: 100, doscientos: 200, trescientos: 300,
   cuatrocientos: 400, quinientos: 500, seiscientos: 600, setecientos: 700,
-  ochocientos: 800, novecientos: 900, mil: 1000,
+  ochocientos: 800, novecientos: 900,
+  // Con cosas femeninas: «quinientas tarjetas», «doscientas invitaciones».
+  doscientas: 200, trescientas: 300, cuatrocientas: 400, quinientas: 500,
+  seiscientas: 600, setecientas: 700, ochocientas: 800, novecientas: 900,
+  mil: 1000,
 }
 
 const EGRESO_HINTS = ['egreso', 'gasto', 'gaste', 'gasté', 'compra', 'compre', 'compré', 'pago de', 'pagué', 'pague', 'salida']
@@ -251,10 +260,15 @@ function candidatosDeMonto(texto: string): Candidato[] {
  * importe (teléfono, cantidad de unidades, fecha). Es la base de la guarda que
  * impide que un intérprete ponga en los libros una cifra que nadie dijo.
  */
-export function cifrasDeLaFrase(texto: string): Array<{ valor: number; descartada: boolean }> {
+export function cifrasDeLaFrase(
+  texto: string,
+): Array<{ valor: number; descartada: boolean; peso: number; cantidad: boolean; palabraAntes: string }> {
   return candidatosDeMonto(texto.toLowerCase()).map((c) => ({
     valor: c.value,
     descartada: c.descartado,
+    peso: c.peso,
+    cantidad: c.unidad,
+    palabraAntes: c.palabraAntes,
   }))
 }
 

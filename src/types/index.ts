@@ -173,6 +173,28 @@ export interface CashClosing {
   closedAt: string
 }
 
+/** Un dictado, tal como lo entendió el intérprete (tabla voice_extractions). */
+export interface NuevoDictado {
+  transcripcion: string
+  /** La extracción completa, tal cual se mostró. */
+  extraccion: unknown
+  intent: string
+  origen: 'llm' | 'reglas'
+  modelo: string | null
+  aviso: string | null
+  ms: number
+  uso: { entrada: number; cacheLectura: number; salida: number } | null
+}
+
+export type TipoDeRegistro = 'pedido' | 'proforma' | 'deuda' | 'abono'
+
+/** Lo que pasó al guardar: qué hubo que corregir y qué se creó. */
+export interface ConfirmacionDictado {
+  camposEditados: string[]
+  registroTipo: TipoDeRegistro
+  registroId: string | null
+}
+
 export type TabKey =
   | 'registro'
   | 'movimientos'

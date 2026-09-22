@@ -16,6 +16,8 @@ import type {
   WorkOrder,
   WorkOrderItem,
   WorkOrderResult,
+  NuevoDictado,
+  ConfirmacionDictado,
 } from '@/types'
 import type { ConvertResult, DataAdapter, NewClosing, PaymentResult } from './adapter'
 
@@ -315,20 +317,19 @@ export const supabaseAdapter: DataAdapter = {
   },
 
   async voidTransaction(id: string) {
-    const row = unwrap(
-      await client()
-        .from('transactions')
-        .update({ status: 'Anulado' })
-        .eq('id', id)
-        .select()
-        .single<TxRow>(),
+    const rows = unwrap(
+      await client().from('transactions').update({ status: 'Anulado' }).eq('id', id).select().returns<TxRow[]>(),
     )
-    return toTx(row)
+    // RLS no da error cuando no deja: devuelve cero filas (0009, solo gerente).
+    if (!rows.length) throw new Error('No se anuló: el asiento ya no existe o tu cuenta no puede anular')
+    return toTx(rows[0])
   },
 
   async deleteTransaction(id: string) {
-    const { error } = await client().from('transactions').delete().eq('id', id)
+    const { data, error } = await client().from('transactions').delete().eq('id', id).select('id')
     if (error) throw new Error(error.message)
+    // Sin permiso, RLS no borra nada y tampoco da error: no afirmar que se borró.
+    if (!data?.length) throw new Error('No se eliminó: el asiento ya no existe o tu cuenta no puede borrar')
   },
 
   async listProformas() {
@@ -384,35 +385,24 @@ export const supabaseAdapter: DataAdapter = {
   },
 
   async convertProforma(id, payment, author): Promise<ConvertResult> {
-    const pf = toProforma(
-      unwrap(await client().from('proformas').select('*').eq('id', id).single<ProformaRow>()),
-    )
-    if (pf.status === 'Convertida') throw new Error(`La proforma ${pf.code} ya fue cobrada`)
-
-    const tx = await supabaseAdapter.createTransaction({
-      type: 'Ingreso',
-      amount: pf.total,
-      category: 'Ventas',
-      party: pf.client,
-      concept: `Cobro de proforma ${pf.code}: ${pf.detail}`,
-      payment,
-      status: 'Completado',
-      author,
-      notes: `Generado automáticamente al cobrar la proforma ${pf.code}.`,
-      source: 'proforma',
+    // Asiento y proforma en una sola transacción (0012): si algo falla, no
+    // queda un ingreso suelto que un segundo intento duplicaría.
+    const { data, error } = await client().rpc('cobrar_proforma', {
+      p_id: id,
+      p_payment: payment,
+      p_author: author,
     })
+    if (error) throw new Error(error.message)
+    const txId = (data as { transaction_id?: string } | null)?.transaction_id
+    if (!txId) throw new Error('El cobro no devolvió su asiento')
 
-    const updated = unwrap(
-      await client()
-        .from('proformas')
-        .update({ status: 'Convertida', transaction_id: tx.id })
-        .eq('id', id)
-        .select()
-        .single<ProformaRow>(),
-    )
-
-    return { proforma: toProforma(updated), transaction: tx }
+    const [pf, tx] = await Promise.all([
+      client().from('proformas').select('*').eq('id', id).single<ProformaRow>(),
+      client().from('transactions').select('*').eq('id', txId).single<TxRow>(),
+    ])
+    return { proforma: toProforma(unwrap(pf)), transaction: toTx(unwrap(tx)) }
   },
+
 
   async listDebts() {
     const rows = await traerTodo<DebtRow>((desde, hasta) =>
@@ -613,5 +603,40 @@ export const supabaseAdapter: DataAdapter = {
         .single<ClosingRow>(),
     )
     return toClosing(row)
+  },
+
+  async registrarDictado(input: NuevoDictado) {
+    const row = unwrap(
+      await client()
+        .from('voice_extractions')
+        .insert({
+          transcripcion: input.transcripcion.slice(0, 1000),
+          extraccion: input.extraccion,
+          intent: input.intent,
+          origen: input.origen,
+          modelo: input.modelo,
+          aviso: input.aviso,
+          ms: Math.max(0, Math.round(input.ms)),
+          tokens_entrada: input.uso?.entrada ?? null,
+          tokens_cache: input.uso?.cacheLectura ?? null,
+          tokens_salida: input.uso?.salida ?? null,
+        })
+        .select('id')
+        .single<{ id: string }>(),
+    )
+    return row.id
+  },
+
+  async confirmarDictado(id: string, confirmacion: ConfirmacionDictado) {
+    const { error } = await client()
+      .from('voice_extractions')
+      .update({
+        confirmada_at: new Date().toISOString(),
+        campos_editados: confirmacion.camposEditados,
+        registro_tipo: confirmacion.registroTipo,
+        registro_id: confirmacion.registroId,
+      })
+      .eq('id', id)
+    if (error) throw new Error(error.message)
   },
 }

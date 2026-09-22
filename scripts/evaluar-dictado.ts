@@ -14,6 +14,7 @@
  *     --hoy AAAA-MM-DD             (2026-09-18) la fecha con que se etiquetó el corpus
  *     --paralelo N                 (4)        llamadas simultáneas
  *     --limite MS                  (5000)     corte por llamada, como en la función
+ *   npm run voz:evaluar -- --resumen RUTA      además, el resumen en JSON (lo lee voz:activar)
  *
  * Mide la tubería entera: intérprete + validarExtraccion (+ cruzarConReglas).
  * Con el modelo, una llamada que falla o tarda cae a las reglas, como en la
@@ -207,7 +208,8 @@ const resultados = corpus.map((entrada, i) => ({
   fallo: salidas[i].fallo ?? null,
 }))
 
-console.log(formatearResumen(resumir(resultados.map((r) => r.resultado)), cliente ? `${motor} (${esfuerzo})` : motor))
+const resumen = resumir(resultados.map((r) => r.resultado))
+console.log(formatearResumen(resumen, cliente ? `${motor} (${esfuerzo})` : motor))
 
 const fallos = resultados.filter((r) => r.fallo)
 if (cliente) {
@@ -244,6 +246,26 @@ if (args.includes('--detalle')) {
       console.log(`    dudas            ${extraida.ambiguedades.map((a) => `${a.campo}: ${a.opciones.join(' | ')}`).join(' · ')}`)
     }
   }
+}
+
+const rutaResumen = opcion('--resumen')
+if (rutaResumen) {
+  writeFileSync(
+    rutaResumen,
+    JSON.stringify(
+      {
+        motor,
+        esfuerzo: cliente ? esfuerzo : null,
+        corpus: rutaCorpus,
+        resumen,
+        caidas: resultados.filter((r) => r.fallo).length,
+        uso: cliente ? uso : null,
+        costo: cliente ? costo(uso) : 0,
+      },
+      null,
+      2,
+    ),
+  )
 }
 
 const salida = opcion('--json')

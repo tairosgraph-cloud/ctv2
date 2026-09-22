@@ -16,8 +16,12 @@ import { validarExtraccion } from '@/lib/dictado/validar'
 import { leerCorpus, puntuarFrase, resumir } from '@/lib/dictado/puntuar'
 import { cruzarConReglas } from '@/lib/dictado/cruzar'
 import { extraerCon, hoyEnLima, type Invocar } from '@/lib/dictado/extraer'
-import { construirPeticion, leerRespuesta } from '../supabase/functions/_shared/dictado/peticion.ts'
-import { normalizarDictado } from '../supabase/functions/_shared/dictado/vocabulario.ts'
+import { destinoDelAbono, formularioDeAbono, formularioDeDeuda, formularioDePedido, formularioDeProforma } from '@/lib/dictado/formulario'
+import { buscarParte, catalogoDePartes, normalizar } from '@/lib/partes'
+import { construirPeticion, leerRespuesta, tieneForma } from '../supabase/functions/_shared/dictado/peticion.ts'
+import { ERRORES_FRECUENTES, normalizarDictado } from '../supabase/functions/_shared/dictado/vocabulario.ts'
+import { PROMPT_SISTEMA } from '../supabase/functions/_shared/dictado/prompt.ts'
+import { puerta } from '@/lib/dictado/puerta'
 import type { Cobro, Extraccion } from '../supabase/functions/_shared/dictado/tipos.ts'
 
 let failures = 0
@@ -176,6 +180,19 @@ async function main() {
   check('reglas: «adelanto de sueldo» es un gasto pagado', [reglas('adelanto de sueldo a kevin 200 en efectivo').intent, reglas('adelanto de sueldo a kevin 200 en efectivo').pedido?.adelanto.tipo], ['egreso', 'total'])
   check('reglas: «2 millares a 180» ofrece 180 o 360', reglas('dos millares de volantes a 180 para jhonatan en efectivo').ambiguedades,
     [{ campo: 'items.0.monto', opciones: ['180', '360'] }])
+  check('reglas: dos trabajos con su precio no se juntan en uno',
+    [reglas('cobré 95 por el empastado y 15 por el anillado cliente Mario yape').pedido?.items[0].monto,
+      reglas('cobré 95 por el empastado y 15 por el anillado cliente Mario yape').ambiguedades],
+    [null, [{ campo: 'items.0.monto', opciones: ['15', '95', '110'] }]])
+  check('reglas: una medida no es otro precio', reglas('vendí una gigantografía de 2 por 1 a doña Pilar por 120 soles con plin').pedido?.items[0].monto, 120)
+  check('reglas: ni el celular', reglas('cliente Carlos 987 654 321 quinientas tarjetas por 150 soles dejó 50 a cuenta en efectivo').pedido?.items[0].monto, 150)
+  check('reglas: ni el precio por unidad', reglas('3 sellos automáticos a 35 soles cada uno cliente Núñez, adelanto 50 soles efectivo').pedido?.items[0].monto, 105)
+  check('reglas: «deja 20» es un adelanto', reglas('cien stickers circulares 60 soles deja 20 a nombre de mily').pedido?.adelanto, { tipo: 'parcial', monto: 20 })
+  check('reglas: «dejan dos millares» es un encargo, no un adelanto',
+    reglas('dejan dos millares de volantes para Rosa, 180 soles').pedido?.adelanto.tipo !== 'parcial', true)
+  check('reglas: números en femenino son cantidades', reglas('quinientas tarjetas para la señora Luz por 90 soles en efectivo').pedido?.items[0].monto, 90)
+  check('voz: «veinticinco soles»', montoDictado('pagué veinticinco soles de movilidad'), 25)
+  check('voz: «dieciocho soles»', montoDictado('gasté dieciocho soles en pasajes'), 18)
   check('reglas: una pregunta es una consulta', reglas('cuánto vendí hoy').intent, 'consulta')
   check('reglas: una muletilla no toca nada', reglas('eh este un momento').intent, 'desconocido')
 
@@ -239,6 +256,19 @@ async function main() {
   check('modelo: un pedido sin líneas cae a las reglas', leerRespuesta(texto(valida.replace('"pedido":null', '"pedido":{"adelanto":{}}'))), null)
   check('modelo: sin bloque de texto cae a las reglas', leerRespuesta({ stop_reason: 'end_turn', content: [] }), null)
 
+  for (const [dichos, correcto] of ERRORES_FRECUENTES) {
+    for (const dicho of dichos) check(`prompt: «${dicho}» lo corrigen también las reglas`, normalizarDictado(dicho).toLowerCase().includes(correcto), true)
+  }
+  const ejemplos = [...PROMPT_SISTEMA.matchAll(/^Dictado: «(.+)»\n(\{.+\})$/gm)]
+  check('prompt: tiene ejemplos de las ocho intenciones… al menos siete', new Set(ejemplos.map((m) => JSON.parse(m[2]).intent)).size >= 7, true)
+  check('prompt: cada ejemplo tiene la forma del esquema', ejemplos.every((m) => tieneForma(JSON.parse(m[2]))), true)
+  const frasesDelCorpus = new Set(
+    ['scripts/corpus-dictado.jsonl', 'scripts/corpus-dictado-control.jsonl', 'scripts/corpus-dictado-control-2.jsonl']
+      .flatMap((f) => leerCorpus(readFileSync(f, 'utf8')))
+      .map((e) => e.frase.toLowerCase()),
+  )
+  check('prompt: ningún ejemplo sale del corpus (sería enseñar el examen)', ejemplos.filter((m) => frasesDelCorpus.has(m[1].toLowerCase())).map((m) => m[1]), [])
+
   // --- dictado: la segunda opinión de las reglas ----------------------------
   const delModelo = (monto: number | null, over: Partial<Extraccion> = {}) =>
     extraccion({ intent: 'ingreso', pedido: pedidoDictado(monto, { tipo: 'total', monto }), ...over })
@@ -292,6 +322,100 @@ async function main() {
   check('extraer: lo del modelo también pasa por la guarda',
     (await extraerCon(venta, responde({ extraccion: delModelo(999) }))).extraccion.pedido?.items[0].monto, null)
   check('extraer: a las 22:00 de Lima sigue siendo hoy en Lima', hoyEnLima(new Date('2026-09-19T03:00:00Z')), '2026-09-18')
+
+  // --- dictado: emparejar el nombre con los que ya existen ------------------
+  const catalogo = catalogoDePartes([
+    { nombre: 'Rosa de la Cruz', fecha: '2026-09-10' },
+    { nombre: 'Botica Santa Rosa', fecha: '2026-09-12' },
+    { nombre: 'Juan Pérez Quispe', fecha: '2026-09-01' },
+    { nombre: 'Cliente Juan Pérez', fecha: '2026-09-15' },
+    { nombre: 'Cristina Mamani', fecha: '2026-08-20' },
+    { nombre: 'Pollería Don Tito', fecha: '2026-09-02' },
+    { nombre: 'rosa de la cruz', fecha: '2026-09-11' },
+  ])
+  check('partes: sin tratamientos ni tildes', normalizar('la señora María Ñáñez'), 'maria nanez')
+  check('partes: una persona, una entrada (la escritura más reciente)',
+    catalogo.filter((p) => normalizar(p.nombre) === 'rosa de la cruz').map((p) => p.nombre), ['rosa de la cruz'])
+  check('partes: el mismo nombre se reconoce', buscarParte('Rosa de la Cruz', catalogo), { tipo: 'exacta', nombre: 'rosa de la cruz' })
+  check('partes: «Rosa» es Rosa de la Cruz, no la Botica Santa Rosa', buscarParte('la señora Rosa', catalogo), { tipo: 'unica', nombre: 'rosa de la cruz' })
+  check('partes: con dos Juanes, se pregunta', buscarParte('Juan', catalogo),
+    { tipo: 'varias', opciones: ['Cliente Juan Pérez', 'Juan Pérez Quispe'] })
+  check('partes: una letra de diferencia solo se sugiere', buscarParte('Cristina Mamany', catalogo),
+    { tipo: 'parecida', nombre: 'Cristina Mamani', dicho: 'Cristina Mamany' })
+  check('partes: una palabra interna solo se sugiere', buscarParte('don Tito', catalogo).tipo, 'parecida')
+  check('partes: alguien que no está es nuevo', buscarParte('Kevin', catalogo), { tipo: 'nueva', nombre: 'Kevin' })
+  check('partes: nada dicho, nada inventado', buscarParte('  ', catalogo), { tipo: 'nueva', nombre: '' })
+
+  // --- dictado: de la extracción al formulario ------------------------------
+  const pedidoRosa = formularioDePedido(delModelo(240, { intent: 'pedido', pedido: pedidoDictado(240, { tipo: 'parcial', monto: 100 }) }), catalogo)
+  check('formulario: el nombre dictado se empareja', pedidoRosa?.parte, 'rosa de la cruz')
+  check('formulario: adelanto parcial', pedidoRosa?.cobro, { parcial: true, adelanto: '100' })
+  check('formulario: lo dictado queda en ámbar',
+    ['tipo', 'parte', 'pago', 'descripcion-0', 'monto-0', 'adelanto', 'cobro'].every((m) => pedidoRosa?.marcas.includes(m)), true)
+  const alCreditoF = formularioDePedido(delModelo(300, { intent: 'pedido', pedido: pedidoDictado(300, { tipo: 'credito', monto: 0 }) }), catalogo)
+  check('formulario: al crédito es adelanto 0', alCreditoF?.cobro, { parcial: true, adelanto: '0' })
+  const sinCobro = formularioDePedido(
+    delModelo(240, { intent: 'pedido', pedido: pedidoDictado(240, { tipo: null, monto: null }), faltantes: ['cobro'] }), catalogo)
+  check('formulario: sin decir cómo se cobró, no se toca y se avisa', [sinCobro?.cobro, sinCobro?.marcas.includes('cobro'), sinCobro?.faltantes],
+    [null, true, ['si pagó todo o dejó un adelanto']])
+  const millaresF = formularioDePedido(reglas('dos millares de volantes a 180 para jhonatan en efectivo'), catalogo)
+  check('formulario: «2 millares a 180» pregunta el precio', [millaresF?.lineas[0].monto, millaresF?.dudas.map((d) => [d.campo, d.opciones.map((o) => o.valor)])],
+    ['', [['items.0.monto', ['180', '360']]]])
+  check('formulario: y el tipo supuesto se dice', millaresF?.supuestos, ['si es ingreso o egreso', 'que se pagó todo'])
+  const dosJuanes = formularioDePedido(delModelo(240, { pedido: { ...pedidoDictado(240, { tipo: 'total', monto: 240 }), parte: 'Juan' } }), catalogo)
+  check('formulario: con dos Juanes, el cliente queda vacío y se pregunta',
+    [dosJuanes?.parte, dosJuanes?.dudas[0]?.opciones.map((o) => o.texto)], [null, ['Cliente Juan Pérez', 'Juan Pérez Quispe', 'Juan (nuevo)']])
+  const dosLineasF = formularioDePedido(delModelo(240, {
+    pedido: { ...pedidoDictado(240, { tipo: 'total', monto: null }), items: [{ descripcion: 'volantes', monto: 240 }, { descripcion: 'afiches', monto: null }] },
+    faltantes: ['items.1.monto'],
+  }), catalogo)
+  check('formulario: varias líneas', dosLineasF?.lineas, [{ descripcion: 'volantes', monto: '240' }, { descripcion: 'afiches', monto: '' }])
+  check('formulario: y el hueco dice de qué línea es', dosLineasF?.faltantes, ['el monto del trabajo 2'])
+  check('formulario: una proforma no llena el libro', formularioDePedido(extraccion({ intent: 'proforma' }), catalogo), null)
+
+  const proformaF = formularioDeProforma(reglas('cotización para la señora María de mil volantes por 500 soles válida dos semanas'), catalogo)
+  check('formulario: proforma', [proformaF?.cliente, proformaF?.total, proformaF?.vigencia], ['María', '500', 15])
+  const deudaF = formularioDeDeuda(extraccion({
+    intent: 'deuda',
+    deuda: { kind: null, parte: 'Juan Pérez Quispe', concepto: 'banner', total: 200, vence: null },
+    ambiguedades: [{ campo: 'kind', opciones: ['COBRAR', 'PAGAR'] }],
+  }), catalogo)
+  check('formulario: deuda sin saber quién debe, se pregunta',
+    [deudaF?.tipo, deudaF?.parte, deudaF?.dudas.map((d) => d.opciones.map((o) => o.texto))], [null, 'Juan Pérez Quispe', [['Me deben', 'Debo']]])
+
+  const cuentaViva = (id: string, party: string, balance: number, createdAt = '2026-09-01'): Debt => ({
+    id, kind: 'COBRAR', party, concept: 'volantes', total: 300, paid: 300 - balance, balance,
+    status: balance > 0 ? 'Parcial' : 'Cancelado', dueDate: null, createdAt, workOrderId: null,
+  })
+  const cuentas = [cuentaViva('a', 'Rosa de la Cruz', 150), cuentaViva('b', 'Juan Pérez Quispe', 80), cuentaViva('c', 'Cliente Juan Pérez', 40), cuentaViva('d', 'Kevin Soto', 0), cuentaViva('e', 'Cristina Mamani', 60)]
+  const abonoDe = (parte: string | null) => extraccion({ intent: 'abono', abono: { parte, monto: 50, pago: 'Efectivo' } })
+  check('abono: una sola cuenta de Rosa, se abre', destinoDelAbono(abonoDe('Rosa'), cuentas), { tipo: 'una', deuda: cuentas[0] })
+  check('abono: con dos Juanes, se pregunta', destinoDelAbono(abonoDe('Juan'), cuentas).tipo, 'varias')
+  check('abono: una cuenta ya pagada no cuenta', destinoDelAbono(abonoDe('Kevin'), cuentas), { tipo: 'ninguna', parte: 'Kevin' })
+  check('abono: un nombre solo parecido no se da por bueno', destinoDelAbono(abonoDe('Cristina Mamany'), cuentas).tipo, 'varias')
+  check('abono: sin nombre, se ofrecen las pendientes', destinoDelAbono(abonoDe(null), cuentas).tipo, 'varias')
+  const dosEscrituras = [cuentaViva('p1', 'Rosa Pérez', 50, '2026-09-01'), cuentaViva('p2', 'Rosa Perez', 70, '2026-09-10')]
+  check('abono: la misma persona escrita de dos formas tiene sus dos cuentas', destinoDelAbono(abonoDe('Rosa Pérez'), dosEscrituras),
+    { tipo: 'varias', deudas: [dosEscrituras[1], dosEscrituras[0]] })
+  check('abono: monto y método dictados', formularioDeAbono(abonoDe('Rosa')), { monto: '50', pago: 'Efectivo', marcas: ['monto', 'pago'], dudas: [], faltantes: [], supuestos: [] })
+
+  // --- dictado: la puntuación y la puerta -----------------------------------
+  const dosTrabajos = { id: 't', frase: 'cobré 95 por el empastado y 15 por el anillado', etiquetas: [],
+    esperado: { intent: 'ingreso' as const, pedido: { items: [{ monto: 95 }, { monto: 15 }] } } }
+  const unaLinea = extraccion({ pedido: pedidoDictado(95, { tipo: 'total', monto: 95 }) })
+  check('puntuar: juntar dos trabajos con un total que no es, es afirmar algo falso',
+    puntuarFrase(dosTrabajos, unaLinea).campos.find((c) => c.campo === 'total del pedido')?.veredicto, 'erroneo')
+  const juntasBien = extraccion({ pedido: pedidoDictado(110, { tipo: 'total', monto: 110 }) })
+  check('puntuar: juntarlos con el total correcto no es un error de dinero (aunque falte partirlos)',
+    puntuarFrase(dosTrabajos, juntasBien).campos.find((c) => c.campo === 'total del pedido')?.veredicto, 'acierto')
+  const medicion = (over: Partial<ReturnType<typeof resumir>>, caidas = 0) => ({
+    resumen: { ...resumir([]), frases: 40, rutaCorrecta: 38, aceptables: 6, afirmacionesFalsas: 4, msP50: 1500, msP95: 3000, ...over }, caidas })
+  const deReglasP = medicion({ msP50: 1, msP95: 2 })
+  check('puerta: un modelo mejor en todo pasa', puerta(deReglasP, medicion({ aceptables: 20, afirmacionesFalsas: 1, rutaCorrecta: 39 })).every((c) => c.cumple), true)
+  check('puerta: si miente más que las reglas, no pasa',
+    puerta(deReglasP, medicion({ aceptables: 30, afirmacionesFalsas: 5 })).filter((c) => !c.cumple).map((c) => c.nombre), ['No afirma más cosas falsas que las reglas'])
+  check('puerta: si es lento, no pasa', puerta(deReglasP, medicion({ aceptables: 20, msP95: 6500 })).some((c) => !c.cumple), true)
+  check('puerta: si cae mucho a las reglas, no pasa', puerta(deReglasP, medicion({ aceptables: 20 }, 3)).some((c) => !c.cumple), true)
 
   // --- dictado: el corpus ---------------------------------------------------
   // La puerta que impide que las reglas vuelvan a mentir. El número de frases
@@ -1019,7 +1143,8 @@ async function main() {
   check('excel: el título va en la primera fila', String(wsMovs.getCell('A1').value).startsWith('TAIROS.RC'), true)
   check('excel: la cabecera va en la cuarta', wsMovs.getCell('A4').value, 'Voucher')
   check('excel: la cabecera se repite al imprimir', wsMovs.pageSetup.printTitlesRow, '4:4')
-  check('excel: panel congelado bajo la cabecera', wsMovs.views[0]?.ySplit, 4)
+  // ySplit solo existe en las vistas congeladas: el tipo general no lo conoce.
+  check('excel: panel congelado bajo la cabecera', (wsMovs.views[0] as { ySplit?: number } | undefined)?.ySplit, 4)
   check('excel: márgenes definidos', wsMovs.pageSetup.margins?.left, 0.45)
   check('excel: se ajusta al ancho de la página', wsMovs.pageSetup.fitToWidth, 1)
   check('excel: los importes llevan formato de soles', wsMovs.getCell('J5').numFmt, '"S/" #,##0.00')

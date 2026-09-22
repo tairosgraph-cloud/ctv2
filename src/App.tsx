@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { DictadoHost } from '@/components/dictado/DictadoHost'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { WelcomeGateway } from '@/components/gateway/WelcomeGateway'
 import { ArqueoView } from '@/features/arqueo/ArqueoView'
@@ -9,9 +10,20 @@ import { MovimientosView } from '@/features/movimientos/MovimientosView'
 import { ProformasView } from '@/features/proformas/ProformasView'
 import { RegistroView } from '@/features/registro/RegistroView'
 import { useAuth } from '@/hooks/useAuth'
+import { useCuentaActiva } from '@/hooks/useCuentaActiva'
+import { DictadoProvider, useDictado } from '@/hooks/useDictado'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { DataProvider, useData } from '@/store/DataProvider'
 import type { TabKey } from '@/types'
+import { rutaDe, type Ruta } from '../supabase/functions/_shared/dictado/tipos.ts'
+
+/** Dónde queda lo dictado: se abre esa pestaña para verlo al guardar. */
+const PESTANA_DE_RUTA: Partial<Record<Ruta, TabKey>> = {
+  registro: 'registro',
+  proforma: 'proformas',
+  deuda: 'deudas',
+  abono: 'deudas',
+}
 
 /**
  * Vite incrusta import.meta.env al compilar, así que esto se resuelve una sola
@@ -86,6 +98,16 @@ function Panel() {
   const [tab, setTab] = useState<TabKey>('registro')
   const [search, setSearch] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const { borrador } = useDictado()
+
+  useEffect(() => {
+    if (!borrador) return
+    const destino = PESTANA_DE_RUTA[rutaDe(borrador.resultado.extraccion.intent)]
+    if (destino) {
+      setTab(destino)
+      setSearch('')
+    }
+  }, [borrador])
 
   if (showGateway) {
     return <WelcomeGateway onEnter={() => setShowGateway(false)} />
@@ -113,12 +135,14 @@ function Panel() {
       {tab === 'deudas' && <DeudasView search={search} />}
       {tab === 'arqueo' && <ArqueoView />}
       {tab === 'configuracion' && <ConfiguracionView />}
+
+      <DictadoHost />
     </DashboardLayout>
   )
 }
 
 /** Espera corta mientras el cliente de Supabase lee la sesión guardada. */
-function PantallaCargando() {
+function PantallaCargando({ texto = 'Comprobando tu sesión…' }: { texto?: string }) {
   return (
     <div className="flex h-full w-full items-center justify-center bg-slate-100 dark:bg-slate-950">
       <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-slate-400">
@@ -126,17 +150,51 @@ function PantallaCargando() {
           className="fa-solid fa-spinner fa-spin text-2xl text-brand-600 dark:text-brand-400"
           aria-hidden="true"
         />
-        <p className="text-xs font-semibold">Comprobando tu sesión…</p>
+        <p className="text-xs font-semibold">{texto}</p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Una cuenta nueva nace sin permisos (0009): hasta que un gerente la activa,
+ * la base no le enseña nada. Mejor decirlo que mostrar unos libros vacíos.
+ */
+function CuentaInactiva() {
+  const { correo, cerrarSesion } = useAuth()
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-slate-100 p-4 dark:bg-slate-950">
+      <div className="w-full max-w-md space-y-4 rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-lg text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+          <i className="fa-solid fa-user-clock" aria-hidden="true" />
+        </span>
+        <div className="space-y-1.5">
+          <h1 className="font-display text-lg font-bold text-slate-900 dark:text-slate-50">
+            Tu cuenta todavía no está activada
+          </h1>
+          <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+            Entraste como <span className="font-semibold text-slate-700 dark:text-slate-200">{correo}</span>,
+            pero nadie del negocio te ha dado acceso aún. Pide al gerente que active tu cuenta y
+            vuelve a entrar.
+          </p>
+        </div>
+        <button type="button" onClick={() => void cerrarSesion()} className="btn-ghost mx-auto">
+          <i className="fa-solid fa-right-from-bracket" aria-hidden="true" />
+          Cerrar sesión
+        </button>
       </div>
     </div>
   )
 }
 
 export default function App() {
-  const { requiereSesion, estado } = useAuth()
+  const { requiereSesion, estado, session } = useAuth()
+  const cuenta = useCuentaActiva(requiereSesion && estado === 'con-sesion' ? session : null)
 
   if (requiereSesion && estado === 'cargando') return <PantallaCargando />
   if (requiereSesion && estado !== 'con-sesion') return <LoginView />
+  if (cuenta === 'comprobando') return <PantallaCargando texto="Comprobando tu cuenta…" />
+  if (cuenta === 'inactiva') return <CuentaInactiva />
 
   // El proveedor de datos se monta DESPUÉS de la sesión a propósito: si
   // cargara antes, su primera lectura saldría sin token —y con las políticas
@@ -145,7 +203,9 @@ export default function App() {
   // contabilidad que había en memoria se va con él.
   return (
     <DataProvider>
-      <Panel />
+      <DictadoProvider>
+        <Panel />
+      </DictadoProvider>
     </DataProvider>
   )
 }

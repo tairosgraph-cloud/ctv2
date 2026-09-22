@@ -7,6 +7,7 @@ import { descargarLibro } from '@/lib/excel'
 import { libroProformas } from '@/lib/reports'
 import { useToast } from '@/hooks/useToast'
 import { expiryDate, fileStamp, money } from '@/lib/format'
+import { estaCaducada } from '@/lib/proformas'
 import { useData } from '@/store/DataProvider'
 import type { Proforma } from '@/types'
 import { CobrarProformaModal } from './CobrarProformaModal'
@@ -36,6 +37,8 @@ export function ProformasView({ search }: { search: string }) {
   )
 
   const paginacion = usePagination(filtered, { firma: query })
+  // Una sola «hora» por render: todas las filas se juzgan con el mismo reloj.
+  const ahora = useMemo(() => new Date(), [proformas])
 
   const anular = async (pf: Proforma) => {
     if (!window.confirm(`¿Anular la proforma ${pf.code} de ${pf.client}?`)) return
@@ -153,17 +156,25 @@ export function ProformasView({ search }: { search: string }) {
                       </span>
                     </td>
                     <td className="td">
-                      <Badge
-                        tone={
-                          p.status === 'Convertida'
-                            ? 'emerald'
-                            : p.status === 'Anulada'
-                              ? 'slate'
-                              : 'purple'
-                        }
-                      >
-                        {p.status}
-                      </Badge>
+                      {estaCaducada(p, ahora) ? (
+                        // Vigente en el papel pero fuera de plazo: el contador de
+                        // arriba ya no la cuenta, y la lista tiene que decir lo mismo.
+                        <span title={`Venció el ${expiryDate(p.issuedAt, p.validityDays)}: el precio ya no está garantizado`}>
+                          <Badge tone="amber">Vencida</Badge>
+                        </span>
+                      ) : (
+                        <Badge
+                          tone={
+                            p.status === 'Convertida'
+                              ? 'emerald'
+                              : p.status === 'Anulada'
+                                ? 'slate'
+                                : 'purple'
+                          }
+                        >
+                          {p.status}
+                        </Badge>
+                      )}
                     </td>
                     <td className="td text-right font-extrabold tabular-nums text-slate-900 dark:text-slate-50">
                       {money(p.total)}

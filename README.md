@@ -16,32 +16,48 @@ actual (Supabase / local) se ve en la esquina inferior de la barra lateral.
 
 ## Estado: conectado a Supabase ✅
 
-El proyecto ya está enlazado con una base real y **las cuatro migraciones están
-aplicadas**. Lo que hay creado:
+El proyecto está enlazado con una base real y tiene aplicadas las migraciones
+`0001`–`0011` (la `0006` no existe: la sustituyó `0009`). Lo que hay creado:
 
 | | |
 | --- | --- |
-| Tablas | `transactions`, `work_orders`, `work_order_items`, `proformas`, `debts`, `debt_payments`, `cash_closings` |
-| Vista | `debts_with_balance` |
-| Funciones | `register_work_order`, `update_work_order`, `update_proforma`, `annul_proforma`, `update_debt`, `delete_debt_payment` |
+| Tablas | `transactions`, `work_orders`, `work_order_items`, `proformas`, `debts`, `debt_payments`, `cash_closings`, `profiles`, `voice_extractions`, `uso_dictado` |
+| Vista | `debts_with_balance` (respeta RLS: `security_invoker`) |
+| Funciones | `register_work_order`, `update_work_order`, `update_proforma`, `annul_proforma`, `update_debt`, `delete_debt_payment`; permisos `puede_ver`, `puede_registrar`, `es_gerente`, `mi_rol`; dictado `contar_dictado`, `purgar_dictados` |
 | Secuencias | `voucher_seq` (OP-000001), `proforma_seq` (PF-1001) |
+| Tareas | `purgar-dictados` (pg_cron, a diario a las 03:00 de Lima) |
 
-La base quedó **vacía a propósito**: se probó el circuito completo (pedido con
-adelanto → asiento + deuda) y se borraron los datos de prueba. Si quieres
-cargar los datos de demostración, ejecuta `supabase/seed.sql`.
+**La base tiene datos de demostración** (unas 1.740 filas, cargadas a propósito
+para probar). Antes del primer dato real hay que vaciarla:
+`npm run db:vaciar -- --confirmar` (respalda antes, vacía los libros, conserva las
+cuentas y reinicia la numeración).
 
-### Migraciones
+### Migraciones, respaldo y vaciado
 
 ```bash
 npm run db:status     # qué está aplicado y qué falta
 npm run db:migrate    # aplicar lo pendiente
 npm run db:baseline   # adoptar una base que ya tiene el esquema
+npm run db:respaldo   # copia completa a ~/Respaldos/tairos/ (fuera del repo, 600)
+npm run db:restaurar -- ARCHIVO              # ensayo: restaura y deshace
+npm run db:restaurar -- ARCHIVO --confirmar  # de verdad (respalda antes)
+npm run db:vaciar     # ensayo del vaciado; con -- --confirmar, de verdad
 ```
 
 `scripts/migrate.mjs` lleva un registro en la tabla `schema_migrations`: aplica
-solo lo que falta, cada archivo dentro de una transacción, y **avisa si alguien
-edita una migración ya aplicada** (la forma clásica de que dos entornos acaben
-con esquemas distintos sin que nadie se entere).
+solo lo que falta, **cada archivo y su anotación en la misma transacción**, y
+avisa si alguien edita una migración ya aplicada (la forma clásica de que dos
+entornos acaben con esquemas distintos sin que nadie se entere).
+
+La conexión (`scripts/bd.mjs`) va por TLS **verificado** contra la raíz de
+Supabase (`supabase/ca-supabase-2021.crt`, pública): nadie en medio de la red
+puede hacerse pasar por la base y quedarse con la contraseña.
+
+El plan gratuito de Supabase **no guarda copias**. `db:respaldo` es la copia: el
+archivo lleva nombres y teléfonos de clientes, así que se guarda como el
+cuaderno de caja (disco externo, nube privada), nunca en el repositorio. Con
+datos reales conviene hacerlo a diario o pasar al plan Pro, que guarda copias
+solo.
 
 `db:baseline` existe porque reaplicar migraciones sobre un esquema que ya las
 tiene no es inocuo: `0001` recrea una vista que `0002` amplía, y Postgres lo
@@ -50,14 +66,14 @@ que registrar, no ejecutar.
 
 ### Dónde viven las credenciales
 
-Separadas por destino, no por archivo:
+Separadas por destino, no por archivo. Todos los `.env.*` están en `.gitignore`.
 
 | Dato | Dónde | Por qué |
 | --- | --- | --- |
-| URL + clave publicable | `.env.local` | Van al navegador a propósito |
-| Contraseña de la base | `~/.pgpass` (fuera del repo, 600) | `psql` la lee sola; no está en el proyecto, así que no se puede commitear |
-| Conexión de migración | `.env.db` (ignorado), **sin** contraseña | La URL del proyecto ya es pública: está en el bundle |
-| Clave secreta | Gestor de contraseñas | La app nunca la necesita |
+| URL + clave publicable | `.env.local` y `vercel.json` | Van al navegador a propósito |
+| Conexión de la base (con contraseña) | `.env.db` | Solo la usan los scripts `db:*` en tu equipo |
+| Clave de Anthropic | `.env.anthropic` y los secretos de la función en Supabase | Nunca en una variable `VITE_`: acabaría en el JavaScript público |
+| Clave secreta de Supabase | Gestor de contraseñas | La app nunca la necesita |
 
 > **`.env.local` no es un archivo de secretos.** Cualquier variable con prefijo
 > `VITE_` que el código referencie queda literalmente escrita en el JavaScript
@@ -82,17 +98,40 @@ propia copia privada.
 
 ---
 
-## 🔴 Antes de publicar en una URL pública
+## Seguridad
 
-**Las políticas RLS están abiertas a la clave publicable**, y esa clave viaja
-dentro del JavaScript. Hoy eso significa que cualquiera que abra la página puede
-extraerla y **leer, modificar y borrar toda la contabilidad** desde fuera de la
-app.
+Quién puede qué lo decide **la base**, no la interfaz: la clave publicable viaja
+en el JavaScript, así que cualquiera puede llamar a la API por su cuenta. Si un
+permiso no está en Postgres, no existe.
 
-Mientras siga así, este proyecto es apto para uso local o en una red privada,
-**no para una dirección pública**. Lo que falta es activar Supabase Auth y
-sustituir las siete políticas `using (true)` por políticas por usuario; el bloque
-comentado al final de `supabase/migrations/0001_init.sql` tiene la versión lista.
+- **Sin sesión no se ve nada** (`0005`, `0007`): el rol anónimo no tiene
+  permisos en ninguna tabla ni función.
+- **Tener cuenta no basta** (`0009`): hace falta un perfil **activo** en
+  `profiles`. Una cuenta nueva nace inactiva y no ve nada; la app le muestra
+  «Tu cuenta todavía no está activada». Así, aunque alguien se registre por la
+  API, no entra.
+- **Papeles**: gerente (todo), cajero (registra y cobra; no corrige, anula,
+  borra ni cierra caja) y contador (solo consulta). Hoy la interfaz no esconde
+  botones según el papel: si un cajero pulsa «Anular», la base lo rechaza.
+- **La función del dictado** exige sesión, cuenta activa con permiso de
+  registrar y cupo diario (300 dictados por cuenta, `contar_dictado`). Al
+  navegador solo le llegan mensajes genéricos.
+- **Cabeceras** (`vercel.json`, `netlify.toml`, generadas por
+  `scripts/csp.mjs`): CSP que solo permite el propio dominio y el proyecto de
+  Supabase, sin marcos (`frame-ancestors 'none'`) y micrófono solo para el
+  sitio. El build falla si la huella del script en línea de `index.html` no
+  coincide.
+
+**Alta de una cuenta**: Supabase → Authentication → Users → Add user, y después,
+en el SQL Editor:
+
+```sql
+update public.profiles set activo = true, rol = 'cajero' where email = 'persona@correo.com';
+```
+
+**Recomendado además**: desactivar el registro público en Supabase →
+Authentication → Sign In / Providers → «Allow new users to sign up». No es
+necesario para proteger los datos (lo hace `0009`), pero evita cuentas basura.
 
 ## Scripts
 
@@ -101,10 +140,13 @@ comentado al final de `supabase/migrations/0001_init.sql` tiene la versión list
 | `npm run dev`       | Servidor de desarrollo con recarga en caliente        |
 | `npm run build`     | Chequeo de tipos + bundle de producción en `dist/`    |
 | `npm run preview`   | Sirve el bundle de producción                         |
-| `npm run typecheck` | Solo TypeScript                                       |
+| `npm run typecheck` | TypeScript de la app y de los scripts                 |
 | `npm run smoke`     | Pruebas de la lógica de negocio y del dictado (también en CI) |
 | `npm run voz -- "frase"` | Pasa una frase por el intérprete y enseña qué sacó |
 | `npm run voz:evaluar` | Mide el intérprete (reglas, o el modelo con `-- --motor llm`) contra el corpus de frases (ver [Dictado](#dictado-cómo-se-mide)) |
+| `npm run voz:activar` | Mide el modelo, aplica la puerta, sube la clave y despliega la función (ver [Dictado con el modelo](#dictado-con-el-modelo)) |
+| `npm run funcion:check` | Comprueba los tipos de la Edge Function con Deno |
+| `npm run db:*` | Migraciones, respaldo, restauración y vaciado (ver arriba) |
 
 ## Estructura
 
@@ -121,17 +163,23 @@ src/
 │   ├── reports.ts    Las hojas de cada informe
 │   ├── clipboard.ts  Copiado con fallback
 │   ├── voice.ts      Web Speech API (síntesis y reconocimiento)
-│   └── voiceParser.ts Interpreta el dictado y arma el asiento
+│   ├── voiceParser.ts Lee cifras, nombres y métodos de una frase
+│   ├── partes.ts     Empareja el nombre dictado con los clientes que ya existen
+│   ├── extractor.ts  El dictado en la app: modelo si está listo, reglas si no
+│   └── dictado/      Reglas, validador, cruce con el modelo, formularios,
+│                     puntuación del corpus y la puerta de despliegue
 ├── data/
 │   ├── adapter.ts        Contrato único de acceso a datos
 │   ├── supabaseAdapter.ts Implementación Supabase (snake_case ↔ camelCase)
 │   ├── localAdapter.ts   Implementación localStorage
-│   ├── seed.ts           Datos de demostración
+│   ├── demoIntermedio.ts Datos de demostración (modo local)
 │   └── index.ts          Elige el adaptador según el entorno
 ├── store/DataProvider.tsx  Estado global + estadísticas derivadas
-├── hooks/            useToast, useSpeaker, useRecognizer
+├── hooks/            useToast, useSpeech, useAuth, useDictado (micrófono global),
+│                     useCamposDictados (el ámbar), usePartes, useCuentaActiva
 ├── components/
 │   ├── ui/           Modal accesible, StatCard, Badge, MicButton
+│   ├── dictado/      AvisoDictado (dudas y huecos) y DictadoHost (abre el formulario)
 │   ├── receipt/      Comprobante imprimible, compartido por libro y ficha
 │   ├── assistant/    El robotcito de deudas y su globo de diálogo
 │   ├── layout/       Sidebar, Topbar, DashboardLayout (con menú móvil)
@@ -141,7 +189,15 @@ src/
     ├── movimientos/  Historial auditado + ficha de detalle
     ├── proformas/    Cotizaciones y conversión en venta
     ├── deudas/       Cuentas por cobrar/pagar con abonos parciales
-    └── arqueo/       Cuadre de caja y resumen ejecutivo
+    ├── arqueo/       Cuadre de caja y resumen ejecutivo
+    ├── auth/         Pantalla de acceso
+    └── configuracion/ Ajustes, cuentas y dictado
+
+supabase/
+├── migrations/       El esquema, en orden (npm run db:migrate)
+└── functions/
+    ├── _shared/dictado/  Contrato, prompt, esquema y petición (Deno y Node)
+    └── extraer-dictado/  La Edge Function del intérprete inteligente
 ```
 
 ### Pedidos, adelantos y saldos
@@ -602,7 +658,8 @@ cada una marcada con lo que de verdad hace:
 | ------- | ------ |
 | **Apariencia** — tema claro/oscuro/sistema | ✅ Funciona |
 | **Datos y respaldo** — modo actual, nº de registros, informe Excel, restablecer demo | ✅ Funciona |
-| **Usuarios y accesos** — personas y roles previstos | ⏳ Necesita el login |
+| **Usuarios y accesos** — tu cuenta, cerrar sesión y papeles | ✅ Funciona (el alta de cuentas, desde Supabase) |
+| **Dictado por voz** — intérprete inteligente, su estado y qué sale del equipo | ✅ Funciona |
 | **Datos del negocio** — nombre, RUC, dirección | ⏳ Próximamente |
 | **Comprobantes y tributación** — series, correlativo, IGV | ⏳ Próximamente |
 | **Caja y contabilidad** — valores por defecto | ⏳ Próximamente |
@@ -610,10 +667,6 @@ cada una marcada con lo que de verdad hace:
 Las secciones pendientes se muestran **atenuadas y sin poder pulsarse**, con una
 insignia que lo dice. Se prefirió esto a poner controles que no hacen nada: una
 pantalla de ajustes llena de botones muertos confunde más de lo que ayuda.
-
-La sección de usuarios lleva además un aviso explícito de que **hoy el sistema
-no pide contraseña** y cualquiera que abra la dirección entra con todos los
-permisos — el mismo riesgo que aparece en la auditoría, dicho donde toca.
 
 ## Preparado para desplegar
 
@@ -654,12 +707,15 @@ comentario.
 - `base: './'` en Vite: el mismo `dist` sirve en dominio raíz y en subruta sin
   recompilar. Es seguro **porque no hay enrutador de cliente**; si algún día
   entra uno con rutas anidadas, hay que pasar a base absoluta.
-- `vercel.json` y `netlify.toml`: build `npm run build` → `dist`, Node 20,
-  `/assets/*` cacheado un año (llevan hash) e `index.html` sin cachear.
+- `vercel.json` y `netlify.toml`: build `npm run smoke && npm run build && node
+  scripts/csp.mjs` → `dist` (**si las pruebas fallan, no se publica**), Node 24,
+  cabeceras de seguridad, `/assets/*` cacheado un año (llevan hash) e
+  `index.html` sin cachear.
 - **Sin reescritura SPA, a propósito**: no hay rutas profundas que rescatar, y un
   catch-all convertiría los 404 honestos en páginas fantasma con código 200.
-- `engines: node >=18` en `package.json`.
-- CI en `.github/workflows/ci.yml`: tipos, pruebas y build en cada push y PR.
+- `engines: node 24.x` en `package.json` (Node 20 ya no tiene soporte).
+- CI en `.github/workflows/ci.yml`: tipos (app y scripts), Edge Function con
+  Deno, pruebas, build y CSP en cada push y PR.
 
 ## Datos de demostración
 
@@ -689,9 +745,10 @@ supera el total, lo abonado nunca supera el saldo, cada cierre cuadra con el
 efectivo de su semana— porque unos datos imposibles enseñarían estados que la
 app no puede producir. Hay 20 comprobaciones que lo verifican.
 
-> **No se cargan en Supabase.** Cuando hay credenciales, la app usa la base real
-> y estos datos no aparecen. Mezclar 120 pedidos inventados con contabilidad de
-> verdad obligaría a distinguirlos uno por uno después.
+> **La app no los carga en Supabase por su cuenta.** Cuando hay credenciales usa
+> la base real. En la base de este proyecto se cargaron datos de demostración a
+> mano, para probar; `npm run db:vaciar -- --confirmar` los quita antes del uso
+> real (mezclarlos con contabilidad de verdad obligaría a separarlos uno a uno).
 
 ## Dictado: cómo se mide
 
@@ -793,33 +850,67 @@ de frases aceptables.
 
 ## Dictado con el modelo
 
-Con sesión iniciada, la frase va a la Edge Function `extraer-dictado`, que se
-la pasa a Claude (`claude-opus-5`) con un prompt y un JSON Schema fijos
-(`supabase/functions/_shared/dictado/`). La función no escribe en la base: solo
-devuelve la extracción. En el navegador (`src/lib/dictado/extraer.ts`) pasa
-lo mismo que con las reglas, y algo más:
+**En la app**: el micrófono de la barra superior sirve para todo. Escucha, abre
+la pestaña y el formulario que toca (orden, proforma, cuenta o abono) y lo
+rellena con lo dictado en ámbar. Nada se guarda sin pasar por el formulario.
+Donde hay dos lecturas («2 millares a 180»: ¿180 o 360?) el campo queda vacío y
+la franja pregunta con botones. El nombre dicho se empareja con los clientes
+que ya existen (`src/lib/partes.ts`): «Rosa» es «Rosa de la Cruz»; con dos
+Juanes, se pregunta. Cada dictado queda en `voice_extractions` con lo que hubo
+que corregir, que es la medida del acierto en el mostrador.
+
+Con sesión y el intérprete inteligente disponible, la frase va a la Edge
+Function `extraer-dictado`, que se la pasa a Claude (`claude-opus-5`) con un
+prompt y un JSON Schema fijos (`supabase/functions/_shared/dictado/`). En el
+navegador (`src/lib/dictado/extraer.ts`) pasa lo mismo que con las reglas, y
+algo más:
 
 1. `validarExtraccion`: la guarda de cifras, igual que para las reglas.
 2. `cruzarConReglas`: si las reglas leen otra cifra para el mismo campo, o
-   vieron dos lecturas («2 millares a 180»: ¿180 o 360?) y el modelo eligió
-   una, no se afirma ninguna: se ofrecen las opciones.
-3. Si la función falla, tarda más de 6 s o devuelve algo que no tiene la forma
-   del esquema, se usan las reglas y se avisa. Sin Supabase o sin sesión, las
-   reglas sin aviso. Nunca lanza.
+   vieron dos lecturas y el modelo eligió una, no se afirma ninguna: se
+   ofrecen las opciones.
+3. Si la función falla, tarda más de 6 s, se acabó el cupo diario o devuelve
+   algo que no tiene la forma del esquema, se usan las reglas y se avisa.
+   Nunca lanza.
+
+**Se activa solo**: la app pregunta a la función si tiene clave (`GET`, sin
+sesión, sin coste). Mientras no esté desplegada, el dictado usa las reglas sin
+avisos; el día que se despliega, la app la usa sin tocar el código.
+Configuración → Dictado por voz muestra el estado y permite apagarla.
 
 ### La clave
 
 Se crea en [console.anthropic.com](https://console.anthropic.com) → API Keys,
 **con límite de gasto mensual**. Vive en dos sitios y en ninguno más:
 
-- `.env.anthropic` en la raíz, con una línea `ANTHROPIC_API_KEY=…` (git ignora
-  `.env.*`). Lo usa el evaluador.
-- Los secretos de la función en Supabase.
+- `.env.anthropic` en la raíz, con **una sola** línea `ANTHROPIC_API_KEY=…` (git
+  ignora `.env.*`).
+- Los secretos de la función en Supabase (los sube `voz:activar`).
 
 Nunca en una variable `VITE_` (acabaría en el JavaScript público), nunca en
 git, nunca pegada en un chat.
 
-### Medir antes de desplegar
+### Activar: medir, decidir y desplegar
+
+```bash
+npx supabase login       # una vez
+npm run voz:activar      # mide → puerta → secreto → despliegue → comprobación
+```
+
+`voz:activar` comprueba la clave (sin mostrarla) y la sesión de la CLI, mide
+reglas y modelo sobre el corpus principal y el control 2, y **solo despliega si
+el modelo pasa la puerta** (`src/lib/dictado/puerta.ts`):
+
+- no afirma más cosas falsas que las reglas y ninguna cifra fuera de la frase;
+- acierta el destino al menos como las reglas y deja más frases que no hay que
+  tocar;
+- p50 ≤ 3 s, p95 ≤ 6 s y cae a las reglas como mucho un 5 % de las veces.
+
+Después sube el secreto, despliega (`--no-verify-jwt --use-api`: la función
+comprueba la sesión ella misma y no hace falta Docker) y comprueba que responde
+«disponible» y que sin sesión da 401. La medición cuesta unos US$ 3.
+
+Para medir sin desplegar: `npm run voz:activar -- --solo-medir`, o a mano:
 
 ```bash
 npm run voz:evaluar -- --motor llm                        # corpus principal
@@ -828,31 +919,21 @@ npm run voz:evaluar -- --motor llm-solo                   # sin la segunda opini
 npm run voz:evaluar -- --motor llm --esfuerzo medium      # más razonamiento
 ```
 
-Cada corrida cuesta dinero de verdad (del orden de 1 a 2 céntimos de dólar por
-frase: unos US$ 2-3 el corpus principal) y el resumen imprime tokens, costo y
-latencia. Si ninguna llamada lee la caché del prompt, lo avisa. La latencia es
-la de la API desde esta máquina; en la app se suman la red y el arranque de la
-función.
+Cada corrida imprime tokens, costo y latencia, y avisa si ninguna llamada lee
+la caché del prompt. La latencia es la de la API desde esta máquina; en la app
+se suman la red y el arranque de la función (que la sonda al entrar ya ha
+despertado).
 
-**Puerta para desplegar**: sobre los dos corpus, el modelo no afirma más cosas
-falsas que las reglas (ideal: ninguna) y gana en ruta y en frases aceptables,
-con p50 ≤ 3 s y p95 ≤ 6 s. Si no gana, no se despliega.
+### Los frenos de la función
 
-### Desplegar la función
-
-```bash
-npx supabase login
-npx supabase link --project-ref uzimdlkildejgkflkpxi
-npx supabase secrets set --env-file .env.anthropic
-npx supabase functions deploy extraer-dictado
-```
-
-`supabase/config.toml` desactiva la verificación del JWT en la pasarela
-(`verify_jwt = false`) porque la hace la función: `auth.getClaims()` y rol
-`authenticated`. La clave pública sola no llega al modelo.
-
-Comprobación: sin sesión → 401; con sesión y texto vacío → 400; con sesión y
-una frase → 200 con la extracción, y la segunda llamada con caché leída.
+- Sesión real (`auth.getClaims`, rol `authenticated`), cuenta **activa** con
+  permiso de registrar (`0009`) y **cupo diario**: 300 dictados por cuenta
+  (`LIMITE_DICTADOS_DIA` para cambiarlo). Lo que no pasa, no gasta la clave.
+- CORS solo para los dominios del proyecto en Vercel y `localhost`
+  (`ORIGENES_PERMITIDOS` para añadir un dominio propio).
+- Al navegador, mensajes genéricos; en los registros de la función, el tipo de
+  error, los tiempos y los tokens. Nunca la frase.
+- El límite de gasto mensual de la consola de Anthropic es el último freno.
 
 ### Añadir frases
 
@@ -870,7 +951,13 @@ están en la cabecera de `scripts/evaluar-dictado.ts`; lo esencial:
 
 ## Pendiente / siguientes pasos
 
-- Autenticación con Supabase Auth y RLS por usuario (el SQL ya lo contempla).
+- **Activar el intérprete inteligente**: `.env.anthropic` + `npx supabase login`
+  + `npm run voz:activar` (ver arriba).
+- **Antes del uso real**: `npm run db:vaciar -- --confirmar`, respaldo diario
+  (`npm run db:respaldo`) o plan Pro de Supabase, y 20–30 frases reales del
+  mostrador para el corpus (salen solas de `voice_extractions`).
+- La interfaz según el papel: esconder a un cajero los botones que la base no le
+  deja usar, y activar cuentas desde Configuración en vez del SQL Editor.
 - IGV y numeración correlativa de comprobantes electrónicos.
 - Cierre por período (mensual) y reportes históricos.
 - Realtime de Supabase para que dos cajeros vean los mismos datos al instante.

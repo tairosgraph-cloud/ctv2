@@ -18,7 +18,10 @@ export const palabra = (patron: string, flags = 'iu') =>
   new RegExp(`(?<![\\p{L}\\d])(?:${patron})(?![\\p{L}\\d])`, flags)
 
 const NUMERO_EN_PALABRAS =
-  'un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien|ciento|doscientos|trescientos|cuatrocientos|quinientos|seiscientos|setecientos|ochocientos|novecientos|mil'
+  'un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|' +
+  'dieciseis|dieciséis|diecisiete|dieciocho|diecinueve|veinte|veinticinco|treinta|cuarenta|cincuenta|' +
+  'sesenta|setenta|ochenta|noventa|cien|ciento|doscientos|trescientos|cuatrocientos|quinientos|' +
+  'seiscientos|setecientos|ochocientos|novecientos|mil'
 
 export const CORRECCIONES_STT: ReadonlyArray<readonly [RegExp, string]> = [
   // El reconocedor no conoce la billetera: la escribe como suena.
@@ -33,6 +36,20 @@ export const CORRECCIONES_STT: ReadonlyArray<readonly [RegExp, string]> = [
   // "cincuenta lucas" son cincuenta soles en Lima. Solo tras una cifra: sin
   // ella, "Lucas" es un nombre.
   [palabra(`(\\d+(?:[.,]\\d+)?|${NUMERO_EN_PALABRAS})\\s+(?:lucas|luquitas)`, 'giu'), '$1 soles'],
+]
+
+/**
+ * Las mismas correcciones, dichas para una persona (o para el modelo): el
+ * prompt las lista tal cual. smoke comprueba que cada una la corrige de verdad
+ * CORRECCIONES_STT, para que las dos listas no se separen.
+ */
+export const ERRORES_FRECUENTES: ReadonlyArray<readonly [dichos: readonly string[], correcto: string]> = [
+  [['llape', 'yapé'], 'yape'],
+  [['plín'], 'plin'],
+  [['giganto grafía'], 'gigantografía'],
+  [['acuenta'], 'a cuenta'],
+  [['transfe'], 'transferencia'],
+  [['cincuenta lucas'], 'cincuenta soles'],
 ]
 
 /** Aplica las correcciones de transcripción y compacta los espacios. */

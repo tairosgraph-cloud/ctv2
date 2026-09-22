@@ -1,9 +1,13 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useMemo, useRef, useState, type FormEvent } from 'react'
+import { AvisoDictado } from '@/components/dictado/AvisoDictado'
 import { MicButton } from '@/components/ui/MicButton'
+import { useCamposDictados } from '@/hooks/useCamposDictados'
+import { useDictado, type Borrador } from '@/hooks/useDictado'
+import { usePartes } from '@/hooks/usePartes'
 import { useRecognizer } from '@/hooks/useSpeech'
 import { useToast } from '@/hooks/useToast'
+import { formularioDePedido, type Duda, type FormularioPedido } from '@/lib/dictado/formulario'
 import { money, parseAmount } from '@/lib/format'
-import { parseVoiceEntry } from '@/lib/voiceParser'
 import { useData } from '@/store/DataProvider'
 import {
   CATEGORIES,
@@ -12,6 +16,7 @@ import {
   type TxType,
   type WorkOrder,
 } from '@/types'
+import { rutaDe, type Ruta } from '../../../supabase/functions/_shared/dictado/tipos.ts'
 
 interface JobLine {
   key: number
@@ -22,27 +27,42 @@ interface JobLine {
 let nextKey = 1
 const emptyLine = (): JobLine => ({ key: nextKey++, description: '', amount: '' })
 
-/** "cliente, monto y método de pago" */
-function listar(campos: string[]): string {
-  if (campos.length < 2) return campos.join('')
-  return `${campos.slice(0, -1).join(', ')} y ${campos[campos.length - 1]}`
+/**
+ * Los nombres de campo del dictado (src/lib/dictado/formulario.ts) cuentan las
+ * líneas por posición; aquí cada línea tiene su `key`, que no cambia al quitar
+ * otras. Esto traduce de uno a otro.
+ */
+const EN_FORMULARIO: Record<string, string> = { parte: 'party', telefono: 'phone', pago: 'payment', kind: 'tipo' }
+function enFormulario(campo: string, lineas: JobLine[]): string {
+  const linea = /^(?:(descripcion|monto)-|items\.)(\d+)(?:\.monto)?$/.exec(campo)
+  if (linea) {
+    const key = lineas[Number(linea[2])]?.key
+    return key === undefined ? campo : `${linea[1] ?? 'monto'}-${key}`
+  }
+  return EN_FORMULARIO[campo] ?? campo
 }
 
-/**
- * El aviso del dictado enumera qué campos se rellenaron y cuáles no salieron;
- * nunca afirma que la cifra sea la correcta, porque el intérprete falla a
- * menudo y antes un acierto y un error se leían exactamente igual.
- */
-function resumenDictado(rellenados: string[], faltantes: string[]): string {
-  const partes = [
-    rellenados.length
-      ? `Dictado: llené ${listar(rellenados)}.`
-      : 'Dictado: no pude deducir ningún campo.',
-  ]
-  if (faltantes.length) partes.push(`No deduje ${listar(faltantes)}.`)
-  partes.push('Tipo y categoría son suposiciones: revisa lo marcado en ámbar.')
-  return partes.join(' ')
+/** Y al revés, para la auditoría: qué hubo que corregir, con nombres estables. */
+const DEL_FORMULARIO: Record<string, string> = { party: 'parte', phone: 'telefono', payment: 'pago', tipo: 'kind' }
+function delFormulario(campo: string, lineas: JobLine[]): string {
+  const linea = /^(descripcion|monto)-(\d+)$/.exec(campo)
+  if (linea) {
+    const i = lineas.findIndex((l) => l.key === Number(linea[2]))
+    return `items.${i < 0 ? '?' : i}.${linea[1]}`
+  }
+  return DEL_FORMULARIO[campo] ?? campo
 }
+
+const NOMBRE_DE_RUTA: Partial<Record<Ruta, string>> = {
+  proforma: 'una proforma',
+  abono: 'un abono a una cuenta',
+  deuda: 'una cuenta pendiente',
+  consulta: 'una pregunta',
+}
+
+/** El dictado no dijo cómo se cobró (o solo lo supuso). */
+const faltaCobro = (b: Borrador | null) =>
+  Boolean(b && (b.resultado.extraccion.faltantes.includes('cobro') || b.resultado.extraccion.supuestos.includes('cobro')))
 
 interface LedgerFormProps {
   /** Se llama tras guardar con éxito; el modal lo usa para cerrarse. */
@@ -51,20 +71,53 @@ interface LedgerFormProps {
   onCancel?: () => void
   /** Si se pasa, el formulario corrige ese pedido en vez de crear uno nuevo. */
   editing?: WorkOrder | null
+  /** Si se pasa, el formulario arranca con lo dictado desde la barra superior. */
+  dictado?: Borrador | null
 }
 
-export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {}) {
+/** Lo dictado, traducido a lo que el formulario pone en pantalla. */
+interface Aplicacion {
+  formulario: FormularioPedido
+  lineas: JobLine[]
+  marcas: string[]
+  dudas: Duda[]
+}
+
+function prepararAplicacion(formulario: FormularioPedido, libres: JobLine[]): Aplicacion {
+  const lineas = formulario.lineas.map((l, i) => ({
+    key: libres[i]?.key ?? nextKey++,
+    description: l.descripcion,
+    amount: l.monto,
+  }))
+  return {
+    formulario,
+    lineas,
+    marcas: formulario.marcas.map((m) => enFormulario(m, lineas)),
+    dudas: formulario.dudas.map((d) => ({ ...d, campo: enFormulario(d.campo, lineas) })),
+  }
+}
+
+export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: LedgerFormProps = {}) {
   const { registerWorkOrder, editWorkOrder, transactions } = useData()
+  const { interpretar, confirmar } = useDictado()
+  const partes = usePartes()
   const toast = useToast()
+
+  // El dictado que abrió el formulario se traduce una sola vez, al montar.
+  const [arranque] = useState<Aplicacion | null>(() => {
+    const formulario = dictado ? formularioDePedido(dictado.resultado.extraccion, partes) : null
+    return formulario ? prepararAplicacion(formulario, []) : null
+  })
+  const inicial = arranque?.formulario
 
   // El método de pago vive en el asiento del adelanto, no en el pedido.
   const originalPayment = editing
     ? (transactions.find((t) => t.workOrderId === editing.id)?.payment ?? 'Efectivo')
     : 'Efectivo'
 
-  const [type, setType] = useState<TxType>(editing?.kind ?? 'Ingreso')
-  const [party, setParty] = useState(editing?.party ?? '')
-  const [phone, setPhone] = useState(editing?.phone ?? '')
+  const [type, setType] = useState<TxType>(editing?.kind ?? inicial?.tipo ?? 'Ingreso')
+  const [party, setParty] = useState(editing?.party ?? inicial?.parte ?? '')
+  const [phone, setPhone] = useState(editing?.phone ?? inicial?.telefono ?? '')
   const [lines, setLines] = useState<JobLine[]>(
     editing?.items.length
       ? editing.items.map((i) => ({
@@ -72,44 +125,54 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
           description: i.description,
           amount: String(i.amount),
         }))
-      : [emptyLine()],
+      : arranque?.lineas ?? [emptyLine()],
   )
-  const [category, setCategory] = useState<string>(editing?.category ?? 'Ventas')
-  const [payment, setPayment] = useState<PaymentMethod>(originalPayment)
+  const [category, setCategory] = useState<string>(editing?.category ?? inicial?.categoria ?? 'Ventas')
+  const [payment, setPayment] = useState<PaymentMethod>(inicial?.pago ?? originalPayment)
   const [advance, setAdvance] = useState(
-    editing && editing.advance < editing.total ? String(editing.advance) : '',
+    editing && editing.advance < editing.total ? String(editing.advance) : (inicial?.cobro?.adelanto ?? ''),
   )
   /** false = el cliente paga todo ahora; true = adelanta una parte. */
-  const [partial, setPartial] = useState(Boolean(editing && editing.advance < editing.total))
+  const [partial, setPartial] = useState(
+    Boolean(editing && editing.advance < editing.total) || Boolean(inicial?.cobro?.parcial),
+  )
   const [saving, setSaving] = useState(false)
+  const [interpretando, setInterpretando] = useState(false)
+
+  /** Lo que escribió el dictado y nadie ha confirmado todavía: en ámbar. */
+  const campos = useCamposDictados(arranque?.marcas)
+  const [dudas, setDudas] = useState<Duda[]>(arranque?.dudas ?? [])
+  const [faltantes, setFaltantes] = useState<string[]>(inicial?.faltantes ?? [])
+  const [supuestos, setSupuestos] = useState<string[]>(inicial?.supuestos ?? [])
+  /** Los dictados aplicados, en orden: a todos se les anota qué hubo que corregir. */
+  const [borradores, setBorradores] = useState<Borrador[]>(arranque && dictado ? [dictado] : [])
+  const borrador = borradores.at(-1) ?? null
   /**
-   * Campos que escribió el dictado y el usuario todavía no ha confirmado. El
-   * intérprete acierta poco, así que lo que llena se marca en ámbar hasta que
-   * alguien lo edita a mano: la marca dice "esto lo puso la máquina, revísalo".
+   * La frase no dijo cómo se cobró. Dejar «pagó todo» por defecto también es
+   * adivinar, así que no se guarda hasta que alguien lo diga con un botón.
+   * Una vez decidido (por la persona o por un dictado que sí lo dice), un
+   * dictado posterior que no lo mencione no lo vuelve a preguntar.
    */
-  const [dictado, setDictado] = useState<Set<string>>(() => new Set())
+  // Decidido = alguien lo dijo: la persona con los controles, un dictado que lo
+  // nombra, o el pedido que se corrige. Sin dictado de por medio nunca se
+  // pregunta: quien teclea ve la casilla.
+  const cobroDecidido = useRef(Boolean(editing) || Boolean(arranque && !faltaCobro(dictado)))
+  const [cobroPorConfirmar, setCobroPorConfirmar] = useState(Boolean(arranque) && !cobroDecidido.current)
+  const decidirCobro = () => {
+    cobroDecidido.current = true
+    setCobroPorConfirmar(false)
+  }
   /**
-   * Si este registro salió de un dictado. No se deduce de `dictado`: «Ya lo
-   * revisé» vacía ese conjunto y el asiento seguiría siendo de origen voz.
+   * Si este registro salió de un dictado. No se deduce de las marcas: «Ya lo
+   * revisé» las borra y el asiento seguiría siendo de origen voz.
    */
-  const [origenVoz, setOrigenVoz] = useState(false)
+  const [origenVoz, setOrigenVoz] = useState(Boolean(arranque))
 
-  const olvidarDictado = (campo: string) =>
-    setDictado((current) => {
-      if (!current.has(campo)) return current
-      const siguiente = new Set(current)
-      siguiente.delete(campo)
-      return siguiente
-    })
-
-  /** Clases del recuadro ámbar; sólo se añaden mientras el campo siga sin revisar. */
-  const marca = (campo: string) =>
-    dictado.has(campo)
-      ? ' border-amber-400 bg-amber-50 dark:border-amber-500/60 dark:bg-amber-500/10'
-      : ''
-
-  const avisoDictado = (campo: string) =>
-    dictado.has(campo) ? { 'aria-describedby': 'aviso-dictado' } : {}
+  /** La persona tocó el campo: fuera el ámbar y la duda, si la había. */
+  const editar = (campo: string) => {
+    campos.editar(campo)
+    setDudas((actual) => (actual.some((d) => d.campo === campo) ? actual.filter((d) => d.campo !== campo) : actual))
+  }
 
   const total = useMemo(
     () =>
@@ -130,73 +193,96 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
 
   const removeLine = (key: number) => {
     setLines((current) => (current.length === 1 ? current : current.filter((l) => l.key !== key)))
-    olvidarDictado(`descripcion-${key}`)
-    olvidarDictado(`monto-${key}`)
+    campos.quitar(`descripcion-${key}`)
+    campos.quitar(`monto-${key}`)
+    setDudas((actual) => actual.filter((d) => d.campo !== `monto-${key}`))
+  }
+
+  /**
+   * Un dictado hecho con el micrófono de este mismo formulario. Se suma a lo
+   * que ya hay: lo que la frase dice se escribe, y lo que solo supone (el
+   * tipo, la categoría, «pagó todo») no pisa lo que ya estaba.
+   */
+  const aplicar = (b: Borrador) => {
+    const formulario = formularioDePedido(b.resultado.extraccion, partes)
+    if (!formulario) return
+    const supuesto = new Set(b.resultado.extraccion.supuestos)
+    // Líneas nuevas siempre, con claves nuevas; las vacías se quitan dentro
+    // del actualizador, con lo que haya en ese momento: lo que alguien haya
+    // tecleado mientras se interpretaba la frase no se pierde.
+    const { lineas, marcas, dudas: nuevas } = prepararAplicacion(formulario, [])
+    const noAplicadas = new Set<string>()
+
+    // Al corregir un pedido el tipo no se puede cambiar (editWorkOrder no lo manda).
+    if (formulario.tipo && !supuesto.has('kind') && !editing) setType(formulario.tipo)
+    else noAplicadas.add('tipo')
+    if (formulario.parte !== null) setParty(formulario.parte)
+    else if (nuevas.some((d) => d.campo === 'party')) setParty('')
+    if (formulario.telefono) setPhone(formulario.telefono)
+    if (formulario.categoria && !supuesto.has('categoria')) setCategory(formulario.categoria)
+    else noAplicadas.add('categoria')
+    if (formulario.pago) setPayment(formulario.pago)
+    setLines((current) => [...current.filter((l) => l.description.trim() || l.amount.trim()), ...lineas])
+
+    if (formulario.cobro && !supuesto.has('cobro')) {
+      setPartial(formulario.cobro.parcial)
+      // «Dejó un adelanto» sin cifra no borra el que ya estaba escrito.
+      if (formulario.cobro.adelanto !== '') setAdvance(formulario.cobro.adelanto)
+      decidirCobro()
+    } else {
+      noAplicadas.add('cobro')
+      noAplicadas.add('adelanto')
+      if (!cobroDecidido.current) setCobroPorConfirmar(true)
+    }
+
+    campos.marcar(marcas.filter((m) => !noAplicadas.has(m)))
+    setDudas((actual) => [...actual.filter((d) => !nuevas.some((n) => n.campo === d.campo)), ...nuevas])
+    setFaltantes(formulario.faltantes)
+    // Las suposiciones no se aplican en un dictado posterior: las que se ven
+    // son las del primero, que siguen en pantalla.
+    setBorradores((actual) => [...actual, b])
+    setOrigenVoz(true)
+  }
+
+  const elegir = (campo: string, valor: string) => {
+    const linea = /^monto-(\d+)$/.exec(campo)
+    if (linea) setLine(Number(linea[1]), { amount: valor })
+    else if (campo === 'party') setParty(valor)
+    else if (campo === 'payment') setPayment(valor as PaymentMethod)
+    else if (campo === 'categoria') setCategory(valor)
+    else if (campo === 'tipo') setType(valor as TxType)
+    else if (campo === 'adelanto') {
+      setPartial(true)
+      setAdvance(valor)
+      decidirCobro()
+    }
+    // Lo eligió la persona: no hace falta pintarlo de ámbar.
+    campos.quitar(campo)
+    setDudas((actual) => actual.filter((d) => d.campo !== campo))
+  }
+
+  const revisado = () => {
+    campos.revisar()
+    setFaltantes([])
+    setSupuestos([])
   }
 
   const { listening, toggle } = useRecognizer({
-    onResult: (transcript) => {
-      const parsed = parseVoiceEntry(transcript)
-      setOrigenVoz(true)
-      const marcas = new Set<string>()
-      const rellenados: string[] = []
-      const faltantes: string[] = []
-
-      // El tipo y la categoría siempre traen un valor porque el intérprete cae
-      // en un valor por defecto: son suposiciones, no deducciones, y el aviso
-      // las nombra aparte para no venderlas como dato leído.
-      setType(parsed.type)
-      marcas.add('tipo')
-      if (parsed.category) {
-        setCategory(parsed.category)
-        marcas.add('categoria')
+    onResult: async (transcript) => {
+      setInterpretando(true)
+      try {
+        const b = await interpretar(transcript)
+        const ruta = rutaDe(b.resultado.extraccion.intent)
+        if (ruta === 'registro') aplicar(b)
+        else if (ruta === 'desconocido') toast.info(`No entendí qué registrar en «${transcript}».`)
+        else {
+          toast.info(
+            `Eso parece ${NOMBRE_DE_RUTA[ruta] ?? 'otra cosa'}, no una orden: díctalo con el micrófono de la barra superior.`,
+          )
+        }
+      } finally {
+        setInterpretando(false)
       }
-
-      // El nombre se pide con la etiqueta del tipo recién dictado, no con la
-      // que estaba en pantalla antes.
-      const quien = parsed.type === 'Ingreso' ? 'cliente' : 'proveedor'
-      if (parsed.party) {
-        setParty(parsed.party)
-        marcas.add('party')
-        rellenados.push(quien)
-      } else {
-        faltantes.push(`el ${quien}`)
-      }
-
-      if (parsed.payment) {
-        setPayment(parsed.payment)
-        marcas.add('payment')
-        rellenados.push('método de pago')
-      } else {
-        faltantes.push('el método de pago')
-      }
-
-      // El dictado llena la primera línea vacía, o añade una nueva.
-      const target = lines.find((l) => !l.description.trim() && !l.amount.trim())
-      const key = target?.key ?? nextKey++
-      const filled: JobLine = {
-        key,
-        description: parsed.concept,
-        amount: parsed.amount !== null ? String(parsed.amount) : '',
-      }
-      setLines((current) =>
-        current.some((l) => l.key === key)
-          ? current.map((l) => (l.key === key ? filled : l))
-          : [...current, filled],
-      )
-      marcas.add(`descripcion-${key}`)
-      rellenados.push('concepto')
-      if (parsed.amount !== null) {
-        marcas.add(`monto-${key}`)
-        rellenados.push('monto')
-      } else {
-        faltantes.push('el monto')
-      }
-
-      // Se suman a las marcas previas: un campo dictado antes y todavía sin
-      // revisar no puede perder el aviso porque el segundo dictado lo omita.
-      setDictado((current) => new Set([...current, ...marcas]))
-      toast.info(resumenDictado(rellenados, faltantes))
     },
     onError: (message) => toast.error(message),
   })
@@ -207,8 +293,24 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
     setLines([emptyLine()])
     setAdvance('')
     setPartial(false)
-    setDictado(new Set())
+    campos.limpiar()
+    setDudas([])
+    setFaltantes([])
+    setSupuestos([])
+    setBorradores([])
     setOrigenVoz(false)
+    cobroDecidido.current = false
+    setCobroPorConfirmar(false)
+  }
+
+  /**
+   * Anota en la auditoría qué hubo que corregir, en cada dictado que llegó al
+   * formulario. Las líneas se numeran por su posición aquí. Nunca frena el
+   * guardado.
+   */
+  const anotarDictado = (registroId: string) => {
+    const camposEditados = campos.camposEditados().map((c) => delFormulario(c, lines))
+    for (const b of borradores) confirmar(b, { camposEditados, registroTipo: 'pedido', registroId })
   }
 
   const submit = async (event: FormEvent) => {
@@ -236,6 +338,15 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
       toast.error(`El adelanto no puede superar el total de ${money(total)}`)
       return
     }
+    if (cobroPorConfirmar) {
+      toast.error('Indica cómo se cobró: pagó todo, dejó una parte o se lo lleva al crédito')
+      return
+    }
+    // Un adelanto marcado y vacío no es «al crédito»: eso se dice con su botón.
+    if (partial && !advance.trim()) {
+      toast.error('Escribe cuánto adelantó, o pulsa «Sin adelanto» si se lo lleva al crédito')
+      return
+    }
 
     setSaving(true)
     try {
@@ -251,16 +362,18 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
 
       if (editing) {
         await editWorkOrder(editing.id, payload)
+        anotarDictado(editing.id)
         toast.success(`Orden de ${payload.party} corregida`)
         onSaved?.()
         return
       }
 
-      const { transaction, debt } = await registerWorkOrder({
+      const { workOrder, transaction, debt } = await registerWorkOrder({
         kind: type,
         ...payload,
         source: origenVoz ? 'voz' : 'manual',
       })
+      anotarDictado(workOrder.id)
 
       if (transaction && debt) {
         toast.success(
@@ -294,34 +407,32 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
           <i className="fa-solid fa-wand-magic-sparkles mr-1.5" aria-hidden="true" />
           Dicta la orden: se llena lo que se entienda y queda marcado para revisar
         </span>
-        <MicButton listening={listening} onToggle={toggle} label="Dictar datos de la orden" />
+        <MicButton
+          listening={listening}
+          onToggle={toggle}
+          busy={interpretando}
+          label="Dictar datos de la orden"
+        />
       </div>
 
-      {dictado.size > 0 && (
-        <div
-          id="aviso-dictado"
-          className="flex items-start justify-between gap-2 rounded-xl border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-[11px] font-semibold text-amber-800 dark:text-amber-300"
-        >
-          <span>
-            <i className="fa-solid fa-triangle-exclamation mr-1.5" aria-hidden="true" />
-            Lo marcado en ámbar lo escribió el dictado, no está verificado: confírmalo antes de
-            guardar.
-          </span>
-          <button
-            type="button"
-            onClick={() => setDictado(new Set())}
-            className="shrink-0 rounded-lg px-2 py-0.5 text-[11px] font-bold text-amber-900 dark:text-amber-200 transition-colors hover:bg-amber-200/60 dark:hover:bg-amber-500/20"
-          >
-            Ya lo revisé
-          </button>
-        </div>
+      {borrador && (
+        <AvisoDictado
+          origen={borrador.resultado.extraccion.origen}
+          aviso={borrador.resultado.aviso}
+          marcados={campos.marcados.size}
+          dudas={dudas}
+          faltantes={faltantes}
+          supuestos={supuestos}
+          onElegir={elegir}
+          onRevisado={revisado}
+        />
       )}
 
       <div
         role="radiogroup"
         aria-label="Tipo de operación"
         className={`grid grid-cols-2 gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 p-1${
-          dictado.has('tipo') ? ' ring-1 ring-amber-400 dark:ring-amber-500/60' : ''
+          campos.marcados.has('tipo') ? ' ring-1 ring-amber-400 dark:ring-amber-500/60' : ''
         }`}
       >
         {(['Ingreso', 'Egreso'] as TxType[]).map((option) => (
@@ -333,7 +444,7 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
             onClick={() => {
               if (editing) return
               setType(option)
-              olvidarDictado('tipo')
+              editar('tipo')
             }}
             disabled={Boolean(editing)}
             className={`rounded-lg py-2 text-xs font-bold transition-all ${
@@ -363,11 +474,11 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
           value={party}
           onChange={(event) => {
             setParty(event.target.value)
-            olvidarDictado('party')
+            editar('party')
           }}
           placeholder={isCobrar ? 'Ej: Cliente Juan Pérez' : 'Ej: Proveedor Pacheco S.A.C.'}
-          className={`field${marca('party')}`}
-          {...avisoDictado('party')}
+          className={`field${campos.clase('party')}`}
+          {...campos.describe('party')}
         />
       </div>
 
@@ -380,9 +491,13 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
           type="tel"
           inputMode="tel"
           value={phone}
-          onChange={(event) => setPhone(event.target.value)}
+          onChange={(event) => {
+            setPhone(event.target.value)
+            editar('phone')
+          }}
           placeholder="Ej: 987 654 321"
-          className="field"
+          className={`field${campos.clase('phone')}`}
+          {...campos.describe('phone')}
         />
       </div>
 
@@ -402,24 +517,24 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
                 value={line.description}
                 onChange={(event) => {
                   setLine(line.key, { description: event.target.value })
-                  olvidarDictado(`descripcion-${line.key}`)
+                  editar(`descripcion-${line.key}`)
                 }}
                 placeholder={index === 0 ? 'Ej: 1,000 volantes A6 couche' : 'Otro trabajo…'}
                 aria-label={`Descripción del trabajo ${index + 1}`}
-                className={`field flex-1${marca(`descripcion-${line.key}`)}`}
-                {...avisoDictado(`descripcion-${line.key}`)}
+                className={`field flex-1${campos.clase(`descripcion-${line.key}`)}`}
+                {...campos.describe(`descripcion-${line.key}`)}
               />
               <input
                 value={line.amount}
                 onChange={(event) => {
                   setLine(line.key, { amount: event.target.value })
-                  olvidarDictado(`monto-${line.key}`)
+                  editar(`monto-${line.key}`)
                 }}
                 inputMode="decimal"
                 placeholder="0.00"
                 aria-label={`Monto del trabajo ${index + 1}`}
-                className={`field w-24 shrink-0 text-right font-semibold${marca(`monto-${line.key}`)}`}
-                {...avisoDictado(`monto-${line.key}`)}
+                className={`field w-24 shrink-0 text-right font-semibold${campos.clase(`monto-${line.key}`)}`}
+                {...campos.describe(`monto-${line.key}`)}
               />
               <button
                 type="button"
@@ -451,7 +566,41 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
       </div>
 
       {/* 4 — Adelanto */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
+      <div
+        className={`rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3${
+          campos.marcados.has('cobro') ? ' ring-1 ring-amber-400 dark:ring-amber-500/60' : ''
+        }`}
+        {...campos.describe('cobro')}
+      >
+        {cobroPorConfirmar && (
+          <div role="group" aria-label="Cómo se cobró" className="mb-2.5 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300">
+              La frase no dice cómo se cobró:
+            </span>
+            {(
+              [
+                ['Pagó todo', false, ''],
+                ['Dejó una parte', true, null],
+                ['Al crédito', true, '0'],
+              ] as const
+            ).map(([texto, parcial, adelanto]) => (
+              <button
+                key={texto}
+                type="button"
+                onClick={() => {
+                  setPartial(parcial)
+                  if (adelanto !== null) setAdvance(adelanto)
+                  decidirCobro()
+                  campos.quitar('cobro')
+                }}
+                className="rounded-lg border border-amber-400 bg-white px-2 py-0.5 text-[11px] font-bold text-amber-900 transition-colors hover:bg-amber-100 dark:border-amber-500/50 dark:bg-slate-900 dark:text-amber-200 dark:hover:bg-amber-500/20"
+              >
+                {texto}
+              </button>
+            ))}
+          </div>
+        )}
+
         <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
           <input
             type="checkbox"
@@ -459,6 +608,8 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
             onChange={(event) => {
               setPartial(event.target.checked)
               if (!event.target.checked) setAdvance('')
+              editar('cobro')
+              decidirCobro()
             }}
             className="accent-brand-700"
           />
@@ -472,14 +623,23 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
                 id="tx-advance"
                 inputMode="decimal"
                 value={advance}
-                onChange={(event) => setAdvance(event.target.value)}
+                onChange={(event) => {
+                  setAdvance(event.target.value)
+                  editar('adelanto')
+                  decidirCobro()
+                }}
                 placeholder="0.00"
                 aria-label="Monto adelantado"
-                className={`field flex-1 font-bold ${advanceExceeds ? 'border-rose-400 bg-rose-50 dark:bg-rose-500/10' : ''}`}
+                className={`field flex-1 font-bold ${advanceExceeds ? 'border-rose-400 bg-rose-50 dark:bg-rose-500/10' : campos.clase('adelanto')}`}
+                {...campos.describe('adelanto')}
               />
               <button
                 type="button"
-                onClick={() => setAdvance('0')}
+                onClick={() => {
+                  setAdvance('0')
+                  editar('adelanto')
+                  decidirCobro()
+                }}
                 className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-200 dark:hover:bg-slate-700"
                 title="El trabajo se entrega al crédito"
               >
@@ -520,10 +680,10 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
             value={category}
             onChange={(event) => {
               setCategory(event.target.value)
-              olvidarDictado('categoria')
+              editar('categoria')
             }}
-            className={`field${marca('categoria')}`}
-            {...avisoDictado('categoria')}
+            className={`field${campos.clase('categoria')}`}
+            {...campos.describe('categoria')}
           >
             {CATEGORIES.map((c) => (
               <option key={c} value={c}>
@@ -541,11 +701,11 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
             value={payment}
             onChange={(event) => {
               setPayment(event.target.value as PaymentMethod)
-              olvidarDictado('payment')
+              editar('payment')
             }}
             disabled={advanceValue === 0}
-            className={`field disabled:opacity-50${marca('payment')}`}
-            {...avisoDictado('payment')}
+            className={`field disabled:opacity-50${campos.clase('payment')}`}
+            {...campos.describe('payment')}
           >
             {PAYMENT_METHODS.map((p) => (
               <option key={p} value={p}>
@@ -566,7 +726,9 @@ export function LedgerForm({ onSaved, onCancel, editing }: LedgerFormProps = {})
           <i className="fa-solid fa-floppy-disk" aria-hidden="true" />
           {saving
             ? 'Guardando…'
-            : editing
+            : cobroPorConfirmar
+              ? 'Falta decir cómo se cobró'
+              : editing
               ? 'Guardar cambios'
               : advanceValue === 0 && total > 0
                 ? `Registrar ${money(total)} al crédito`

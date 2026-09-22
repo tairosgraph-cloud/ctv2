@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
+import { MicButton } from '@/components/ui/MicButton'
 import { money, todayLong } from '@/lib/format'
+import { useDictado } from '@/hooks/useDictado'
 import { useInformeGeneral } from '@/hooks/useInformeGeneral'
 import { useData } from '@/store/DataProvider'
 import { AlertsBell } from './AlertsBell'
@@ -14,6 +16,7 @@ interface TopbarProps {
 
 export function Topbar({ search, onSearchChange, onOpenMenu, onGoToDebts }: TopbarProps) {
   const { stats } = useData()
+  const dictado = useDictado()
   const informe = useInformeGeneral()
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -65,6 +68,15 @@ export function Topbar({ search, onSearchChange, onOpenMenu, onGoToDebts }: Topb
       </div>
 
       <div className="flex items-center gap-2 md:gap-3">
+        {/* Dictar cualquier operación: una venta, una proforma, un abono… */}
+        <MicButton
+          listening={dictado.estado === 'escuchando'}
+          busy={dictado.estado === 'extrayendo'}
+          onToggle={dictado.alternar}
+          label="Dictar una operación"
+          className="h-9 w-9 text-sm"
+        />
+
         <AlertsBell onGoToDebts={onGoToDebts} />
 
         <button

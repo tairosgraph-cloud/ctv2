@@ -184,6 +184,16 @@ export function puntuarFrase(entrada: EntradaCorpus, obtenida: Extraccion, ms = 
           if ('monto' in it) mirar(montoDeItem(i), it.monto, obtenidos[i].monto, numero)
           if ('descripcion' in it) mirar(`items.${i}.descripcion`, it.descripcion, obtenidos[i].descripcion, texto)
         })
+      } else {
+        // Pero el dinero sí se puede comparar: juntar «95 por el empastado y 15
+        // por el anillado» en una línea de 95 registra 15 soles de menos.
+        const esperados = ep.items.map((it) => it.monto)
+        const afirmados = obtenidos.map((it) => it.monto)
+        const cifra = (v: unknown): v is number => typeof v === 'number'
+        if (afirmados.length && esperados.every(cifra) && afirmados.every(cifra)) {
+          const suma = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) * 100) / 100
+          mirar('total del pedido', suma(esperados), suma(afirmados), numero)
+        }
       }
     }
     if (ep.adelanto) {

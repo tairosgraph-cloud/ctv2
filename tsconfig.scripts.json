@@ -1,0 +1,12 @@
+{
+  // Los scripts de Node (pruebas, evaluador, activación). No entran en el build
+  // de la app, pero esbuild les quita los tipos sin revisarlos: sin esto, un
+  // error de tipos en smoke.ts pasaría sin que nadie lo viera.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["scripts/*.ts", "src"]
+}

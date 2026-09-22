@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/hooks/useToast'
-import { money } from '@/lib/format'
+import { expiryDate, money } from '@/lib/format'
+import { estaCaducada } from '@/lib/proformas'
 import { useData } from '@/store/DataProvider'
 import { PAYMENT_METHODS, type PaymentMethod, type Proforma } from '@/types'
 
@@ -21,6 +22,7 @@ export function CobrarProformaModal({ proforma, onClose }: Props) {
   const [saving, setSaving] = useState(false)
 
   if (!proforma) return null
+  const vencida = estaCaducada(proforma, new Date())
 
   const confirm = async () => {
     setSaving(true)
@@ -59,6 +61,19 @@ export function CobrarProformaModal({ proforma, onClose }: Props) {
       }
     >
       <div className="space-y-3">
+        {vencida && (
+          // No se bloquea: a veces el cliente acepta tarde y el negocio
+          // decide respetar el precio. Pero que se sepa antes de cobrar.
+          <div
+            role="note"
+            className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+          >
+            <i className="fa-solid fa-clock-rotate-left mr-1.5" aria-hidden="true" />
+            Esta cotización venció el {expiryDate(proforma.issuedAt, proforma.validityDays)}. Si
+            respetas el precio de entonces, puedes cobrarla igual; si no, corrígela antes.
+          </div>
+        )}
+
         <div className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3.5">
           <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">Detalle cotizado</p>
           <p className="text-xs font-semibold text-slate-800 dark:text-slate-100">{proforma.detail}</p>

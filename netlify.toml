@@ -3,12 +3,14 @@
 # las explicaciones viven aquí y en .env.example).
 
 [build]
-  command = "npm run build"
+  # Las pruebas antes que el build: si fallan, no se publica nada. Y la CSP se
+  # comprueba contra el index.html recién compilado.
+  command = "npm run smoke && npm run build && node scripts/csp.mjs"
   publish = "dist"
 
 [build.environment]
   # Misma versión que usa la integración continua (.github/workflows/ci.yml).
-  NODE_VERSION = "20"
+  NODE_VERSION = "24"
 
   # ---------------------------------------------------------------------------
   # VARIABLES DE ENTORNO: HAY QUE PONERLAS ANTES DE COMPILAR
@@ -79,3 +81,14 @@
 #
 # Si en el futuro se añade react-router, habrá que añadir aquí la redirección y cambiar
 # `base` a una ruta absoluta.
+
+# >>> cabeceras de seguridad (las escribe scripts/csp.mjs --escribir)
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'sha256-0nJa6l9RAnBxI3djPm357emAfG1U9d3xmaFJ54tF18M='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://uzimdlkildejgkflkpxi.supabase.co wss://uzimdlkildejgkflkpxi.supabase.co; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "microphone=(self), camera=(), geolocation=(), payment=(), usb=()"
+# <<< cabeceras de seguridad

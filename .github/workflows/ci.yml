@@ -25,10 +25,11 @@ jobs:
       - name: Descargar el repositorio
         uses: actions/checkout@v4
 
-      - name: Preparar Node 20
+      # La misma versión que package.json (engines) y Netlify: Node 24 LTS.
+      - name: Preparar Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       # `npm ci` (y no `npm install`) porque instala exactamente lo que dice
@@ -41,16 +42,26 @@ jobs:
       # que se coloca en su script postinstall. npm 11.6+ bloquea por defecto los
       # scripts de instalación de las dependencias y sólo deja un aviso
       # ("blocked install scripts"), con lo que el fallo aparecería mucho después y
-      # con un mensaje confuso. Node 20 viene con npm 10, donde los scripts sí se
-      # ejecutan y este paso pasa de largo en un segundo; si algún día el npm de
-      # turno los bloquea, `npm rebuild esbuild` los ejecuta explícitamente sólo
-      # para ese paquete. Es idempotente y evita tener que recurrir a
-      # `npm install`, que sí modificaría el lock.
+      # con un mensaje confuso. Si el binario ya está (lo normal: llega como
+      # dependencia opcional @esbuild/linux-x64), este paso pasa de largo en un
+      # segundo; si no, `npm rebuild esbuild` ejecuta el script sólo para ese
+      # paquete. Es idempotente y evita tener que recurrir a `npm install`, que
+      # sí modificaría el lock.
       - name: Asegurar el binario de esbuild
         run: npx --no-install esbuild --version || npm rebuild esbuild
 
+      # La app y también los scripts (pruebas, evaluador, activación).
       - name: Comprobar tipos
         run: npm run typecheck
+
+      # La Edge Function corre en Deno e importa con `npm:`: tsc no la revisa.
+      - name: Preparar Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Comprobar la Edge Function
+        run: deno check supabase/functions/extraer-dictado/index.ts
 
       - name: Pruebas de humo
         run: npm run smoke
@@ -61,3 +72,9 @@ jobs:
       # variables en tiempo de compilación; el host debe compilar con las suyas.
       - name: Compilar
         run: npm run build
+
+      # La CSP de vercel.json/netlify.toml permite el script en línea de
+      # index.html por su huella: si alguien lo cambia, esto falla aquí y no en
+      # el navegador de quien usa la app.
+      - name: Comprobar la política de contenido
+        run: node scripts/csp.mjs

@@ -1,5 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { resetLocalStore } from '@/data'
+import { guardarInterpreteActivado, interpreteActivado } from '@/lib/dictado/preferencia'
+import { comprobarInterprete, type EstadoInterprete } from '@/lib/extractor'
+import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { useInformeGeneral } from '@/hooks/useInformeGeneral'
 import { useTheme, type Tema } from '@/hooks/useTheme'
@@ -19,26 +22,143 @@ const TEMAS: { valor: Tema; etiqueta: string; icono: string; nota: string }[] = 
 ]
 
 /**
- * Los permisos por rol todavía no existen: hoy toda cuenta que entra puede
- * hacer de todo. Se listan igual para que se vea hacia dónde va esto.
+ * Los papeles que aplica la base (0009). La pantalla todavía enseña todos los
+ * botones a todos; lo que un papel no permite, la base lo rechaza.
  */
 const ROLES = [
   {
-    nombre: 'Administrador',
+    clave: 'gerente',
+    nombre: 'Gerente',
     icono: 'fa-user-shield',
-    puede: 'Todo: registrar, corregir, anular, cerrar caja y ver los informes.',
+    puede: 'Todo: registrar, corregir, anular, borrar y cerrar caja.',
   },
   {
+    clave: 'cajero',
     nombre: 'Cajero',
     icono: 'fa-user',
-    puede: 'Registrar órdenes y cobrar. No puede anular ni eliminar asientos.',
+    puede: 'Registra órdenes, gastos, abonos y cobra proformas. No corrige, anula, borra ni cierra caja.',
   },
   {
-    nombre: 'Solo lectura',
+    clave: 'contador',
+    nombre: 'Contador',
     icono: 'fa-eye',
-    puede: 'Consultar e imprimir. No modifica nada. Útil para tu contador.',
+    puede: 'Consulta y exporta. No modifica nada.',
   },
-]
+] as const
+
+/** El papel de la cuenta con sesión (mi_rol, 0009); null en modo local o si no se sabe. */
+function useMiRol(activo: boolean): string | null {
+  const [rol, setRol] = useState<string | null>(null)
+  useEffect(() => {
+    const cliente = supabase
+    if (!activo || !cliente) return
+    let vivo = true
+    void Promise.resolve(cliente.rpc('mi_rol'))
+      .then(({ data, error }) => {
+        if (vivo && !error && typeof data === 'string') setRol(data)
+      })
+      .catch(() => undefined)
+    return () => {
+      vivo = false
+    }
+  }, [activo])
+  return rol
+}
+
+const ESTADO_DEL_INTERPRETE: Record<EstadoInterprete | 'comprobando', string> = {
+  comprobando: 'Comprobando si está listo…',
+  disponible: 'Listo en el servidor.',
+  'no-desplegado': 'Todavía no está activado en el servidor: el dictado usa el intérprete básico.',
+  'sin-servidor': 'Sin servidor no hay intérprete inteligente: el dictado usa el básico.',
+}
+
+/**
+ * El dictado por voz: el interruptor del intérprete inteligente, su estado
+ * real y qué sale del equipo cuando se dicta.
+ */
+function SeccionDictado() {
+  const [activado, setActivado] = useState(interpreteActivado)
+  const [estado, setEstado] = useState<EstadoInterprete | 'comprobando'>('comprobando')
+
+  useEffect(() => {
+    let vivo = true
+    void comprobarInterprete().then((e) => {
+      if (vivo) setEstado(e)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [])
+
+  const alternar = () => {
+    guardarInterpreteActivado(!activado)
+    setActivado(!activado)
+  }
+
+  const listo = estado === 'disponible'
+
+  return (
+    <Seccion
+      titulo="Dictado por voz"
+      descripcion="Cómo se interpreta lo que dictas"
+      icono="fa-microphone"
+      estado={<Activo />}
+    >
+      <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+        <div className="text-xs">
+          <p className="font-bold text-slate-800 dark:text-slate-100">Intérprete inteligente</p>
+          <p className="mt-0.5 text-slate-500 dark:text-slate-400">
+            Entiende frases dichas de cualquier manera y varios trabajos a la vez. Si falla o tarda,
+            el dictado sigue con el intérprete básico.
+          </p>
+          <p
+            className={`mt-1 font-semibold ${
+              listo && activado ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400'
+            }`}
+          >
+            {activado ? ESTADO_DEL_INTERPRETE[estado] : 'Apagado en este navegador: el dictado usa el básico.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={activado}
+          aria-label="Intérprete inteligente"
+          onClick={alternar}
+          className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors ${
+            activado ? 'bg-brand-600' : 'bg-slate-300 dark:bg-slate-700'
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+              activado ? 'left-[1.375rem]' : 'left-0.5'
+            }`}
+          />
+        </button>
+      </div>
+
+      <p className="mt-3 text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        Qué sale de este equipo
+      </p>
+      <ul className="mt-1.5 space-y-1.5 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+        <li>
+          <i className="fa-solid fa-microphone mr-1.5 w-3 text-slate-400" aria-hidden="true" />
+          La voz la convierte en texto el navegador; en Chrome, con los servidores de Google.
+        </li>
+        <li>
+          <i className="fa-solid fa-wand-magic-sparkles mr-1.5 w-3 text-slate-400" aria-hidden="true" />
+          Con el intérprete inteligente, ese texto (nunca el audio) se envía a Anthropic (Claude) para
+          entenderlo. Apagado, no sale nada más.
+        </li>
+        <li>
+          <i className="fa-solid fa-database mr-1.5 w-3 text-slate-400" aria-hidden="true" />
+          Cada dictado queda guardado como texto en tu base, con lo que hubo que corregir, para medir
+          cuánto acierta. El audio no se guarda.
+        </li>
+      </ul>
+    </Seccion>
+  )
+}
 
 export function ConfiguracionView() {
   const { tema, elegir } = useTheme()
@@ -47,6 +167,7 @@ export function ConfiguracionView() {
   const informe = useInformeGeneral()
   const toast = useToast()
   const [reiniciando, setReiniciando] = useState(false)
+  const miRol = useMiRol(requiereSesion)
 
   const restablecer = () => {
     if (
@@ -220,8 +341,9 @@ export function ConfiguracionView() {
             </div>
 
             <p className="mt-3 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
-              Las cuentas se crean y se borran desde Supabase → Authentication → Users. Todavía no
-              se pueden administrar desde aquí.
+              Las cuentas se crean desde Supabase → Authentication → Users y se activan, con su
+              papel, desde el SQL Editor (el README explica cómo). Todavía no se pueden
+              administrar desde aquí.
             </p>
           </>
         ) : (
@@ -240,25 +362,40 @@ export function ConfiguracionView() {
 
         <div className="mb-2 mt-4 flex items-center justify-between gap-2">
           <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-            Roles previstos
+            Papeles
           </p>
-          <Proximamente nota="Hoy toda cuenta que entra puede hacer de todo" />
+          {requiereSesion ? <Activo /> : <Proximamente nota="Sin servidor no hay cuentas" />}
         </div>
         <ul className="space-y-2">
           {ROLES.map((rol) => (
-            <li key={rol.nombre} className="flex items-start gap-2.5 text-xs">
+            <li key={rol.clave} className="flex items-start gap-2.5 text-xs">
               <i
                 className={`fa-solid ${rol.icono} mt-0.5 w-4 text-slate-400 dark:text-slate-500`}
                 aria-hidden="true"
               />
               <span>
                 <span className="font-bold text-slate-800 dark:text-slate-100">{rol.nombre}</span>
+                {miRol === rol.clave && (
+                  <span className="ml-1.5 rounded-md bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold text-brand-800 dark:bg-brand-500/10 dark:text-brand-300">
+                    tu papel
+                  </span>
+                )}
                 <span className="text-slate-500 dark:text-slate-400"> — {rol.puede}</span>
               </span>
             </li>
           ))}
         </ul>
+        {requiereSesion && (
+          <p className="mt-3 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+            Los permisos los aplica la base: una cuenta nueva no ve nada hasta que un gerente la
+            activa. La pantalla todavía muestra todos los botones; lo que tu papel no permite, el
+            servidor lo rechaza con un aviso.
+          </p>
+        )}
       </Seccion>
+
+      {/* ---------- Dictado: funciona hoy ---------- */}
+      <SeccionDictado />
 
       {/* ---------- Negocio: visual ---------- */}
       <Seccion

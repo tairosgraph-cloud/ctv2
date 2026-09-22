@@ -4,19 +4,24 @@
   "version": "2.0.0",
   "type": "module",
   "engines": {
-    "node": ">=18"
+    "node": "24.x"
   },
   "description": "Tairos.rc — Asistente comercial: registro contable, proformas, deudas y arqueo de caja",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit",
+    "typecheck": "tsc -b --noEmit && tsc -p tsconfig.scripts.json",
+    "funcion:check": "npx --yes deno@2 check supabase/functions/extraer-dictado/index.ts",
     "smoke": "esbuild scripts/smoke.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/smoke.mjs --log-level=error --alias:@=./src --external:exceljs && node --input-type=module -e \"import('./scripts/browser-shim.js').then(() => import('./node_modules/.cache/smoke.mjs'))\"",
     "db:migrate": "node scripts/migrate.mjs",
     "db:status": "node scripts/migrate.mjs --status",
     "db:baseline": "node scripts/migrate.mjs --baseline",
+    "db:respaldo": "node scripts/datos.mjs respaldo",
+    "db:restaurar": "node scripts/datos.mjs restaurar",
+    "db:vaciar": "node scripts/datos.mjs vaciar",
     "voz": "esbuild scripts/probar-dictado.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/voz.mjs --log-level=error --alias:@=./src && node node_modules/.cache/voz.mjs",
+    "voz:activar": "esbuild scripts/activar-dictado.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/voz-activar.mjs --log-level=error --alias:@=./src && node node_modules/.cache/voz-activar.mjs",
     "voz:evaluar": "esbuild scripts/evaluar-dictado.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/voz-evaluar.mjs --log-level=error --alias:@=./src --external:@anthropic-ai/sdk && node node_modules/.cache/voz-evaluar.mjs"
   },
   "dependencies": {
@@ -35,6 +40,8 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.21.5",
+    "pg": "^8.23.0",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.6.3",

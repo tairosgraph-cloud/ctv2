@@ -204,6 +204,8 @@ export const localAdapter: DataAdapter = {
     const pf = read().proformas.find((p) => p.id === id)
     if (!pf) throw new Error('La proforma no existe')
     if (pf.status === 'Convertida') throw new Error(`La proforma ${pf.code} ya fue cobrada`)
+    // Igual que cobrar_proforma (0012): una anulada no se cobra.
+    if (pf.status !== 'Vigente') throw new Error(`La proforma ${pf.code} está anulada: no se puede cobrar`)
 
     const transaction = await localAdapter.createTransaction({
       type: 'Ingreso',
@@ -561,6 +563,13 @@ export const localAdapter: DataAdapter = {
       return closing
     })
   },
+
+  // Sin servidor no hay a quién medir: el dictado funciona, pero no se audita.
+  async registrarDictado() {
+    return null
+  },
+
+  async confirmarDictado() {},
 }
 
 /** Vacia el almacen local y vuelve a los datos de demostracion. */
