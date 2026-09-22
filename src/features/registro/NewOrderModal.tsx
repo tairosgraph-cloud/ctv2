@@ -10,6 +10,8 @@ interface Props {
   editing?: WorkOrder | null
   /** Si viene, el formulario arranca con lo dictado. */
   dictado?: Borrador | null
+  /** Pedido nuevo para un cliente ya elegido. */
+  paraCliente?: { nombre: string; telefono: string } | null
 }
 
 /**
@@ -17,7 +19,7 @@ interface Props {
  * ancho a la tabla. Sirve para las dos cosas: registrar una orden nueva y
  * corregir una ya guardada.
  */
-export function NewOrderModal({ open, onClose, editing = null, dictado = null }: Props) {
+export function NewOrderModal({ open, onClose, editing = null, dictado = null, paraCliente = null }: Props) {
   return (
     <Modal
       open={open}
@@ -35,6 +37,7 @@ export function NewOrderModal({ open, onClose, editing = null, dictado = null }:
         key={editing?.id ?? (dictado ? `dictado-${dictado.id}` : 'nuevo')}
         editing={editing}
         dictado={dictado}
+        paraCliente={paraCliente}
         onSaved={onClose}
         onCancel={onClose}
       />

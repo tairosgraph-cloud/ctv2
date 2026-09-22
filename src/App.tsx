@@ -10,6 +10,8 @@ import { MovimientosView } from '@/features/movimientos/MovimientosView'
 import { ProformasView } from '@/features/proformas/ProformasView'
 import { RegistroView } from '@/features/registro/RegistroView'
 import { TrabajosView } from '@/features/trabajos/TrabajosView'
+import { ClientesView } from '@/features/clientes/ClientesView'
+import { CatalogoView } from '@/features/catalogo/CatalogoView'
 import { useAuth } from '@/hooks/useAuth'
 import { useCuentaActiva } from '@/hooks/useCuentaActiva'
 import { DictadoProvider, useDictado } from '@/hooks/useDictado'
@@ -132,6 +134,8 @@ function Panel() {
 
       {tab === 'registro' && <RegistroView search={search} />}
       {tab === 'trabajos' && <TrabajosView search={search} />}
+      {tab === 'clientes' && <ClientesView search={search} />}
+      {tab === 'catalogo' && <CatalogoView search={search} />}
       {tab === 'movimientos' && <MovimientosView search={search} />}
       {tab === 'proformas' && <ProformasView search={search} />}
       {tab === 'deudas' && <DeudasView search={search} />}

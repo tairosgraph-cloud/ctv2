@@ -18,6 +18,11 @@ const TONO_PLAZO: Record<Plazo['tipo'], string> = {
   'sin-fecha': 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
 }
 
+const ORDEN = ESTADOS_TRABAJO as readonly EstadoTrabajo[]
+/** De diseño o aprobación a algo posterior: hay que decir quién aprobó. */
+const necesitaAprobacion = (desde: EstadoTrabajo, hasta: EstadoTrabajo) =>
+  (desde === 'diseno' || desde === 'aprobacion') && ORDEN.indexOf(hasta) > ORDEN.indexOf('aprobacion')
+
 const pasaFiltro = (t: TrabajoEnTablero, filtro: Filtro) =>
   filtro === 'todos' ||
   (filtro === 'atrasados' && t.plazo.tipo === 'atrasado') ||
@@ -36,7 +41,8 @@ export function TrabajosView({ search }: { search: string }) {
   const { workOrders, debts, loading, avanzarTrabajo, fijarEntrega } = useData()
   const toast = useToast()
   const [filtro, setFiltro] = useState<Filtro>('todos')
-  const [entregando, setEntregando] = useState<TrabajoEnTablero | null>(null)
+  const [entregando, setEntregando] = useState<{ t: TrabajoEnTablero; nota: string } | null>(null)
+  const [aprobando, setAprobando] = useState<{ t: TrabajoEnTablero; estado: EstadoTrabajo } | null>(null)
   const [verEntregados, setVerEntregados] = useState(false)
 
   const tablero = useMemo(() => armarTablero(workOrders, debts, new Date()), [workOrders, debts])
@@ -46,10 +52,12 @@ export function TrabajosView({ search }: { search: string }) {
     t.pedido.party.toLowerCase().includes(q) ||
     t.pedido.items.some((i) => i.description.toLowerCase().includes(q))
 
-  const mover = async (t: TrabajoEnTablero, estado: EstadoTrabajo) => {
-    if (estado === 'entregado') return setEntregando(t)
+  const mover = async (t: TrabajoEnTablero, estado: EstadoTrabajo, nota?: string) => {
+    // Un trabajo que pasó por diseño no se imprime sin decir quién lo aprobó.
+    if (nota === undefined && necesitaAprobacion(t.pedido.estado, estado)) return setAprobando({ t, estado })
+    if (estado === 'entregado') return setEntregando({ t, nota: nota ?? '' })
     try {
-      await avanzarTrabajo(t.pedido.id, estado)
+      await avanzarTrabajo(t.pedido.id, estado, nota)
       toast.success(`${t.pedido.party}: ${NOMBRE_ESTADO[estado].toLowerCase()}`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo mover el trabajo')
@@ -170,7 +178,18 @@ export function TrabajosView({ search }: { search: string }) {
         </div>
       )}
 
-      {entregando && <EntregarModal t={entregando} onClose={() => setEntregando(null)} />}
+      {entregando && <EntregarModal t={entregando.t} nota={entregando.nota} onClose={() => setEntregando(null)} />}
+      {aprobando && (
+        <AprobacionModal
+          t={aprobando.t}
+          onClose={() => setAprobando(null)}
+          onAprobar={(nota) => {
+            const { t, estado } = aprobando
+            setAprobando(null)
+            void mover(t, estado, nota)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -234,6 +253,18 @@ function Tarjeta({
       </label>
 
       <div className="flex flex-wrap items-center gap-1.5">
+        {(pedido.estado === 'diseno' || pedido.estado === 'aprobacion') && (
+          <a
+            href={enlaceWhatsApp(pedido.phone, mensaje.prueba(pedido))}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 px-2 py-1 text-[11px] font-bold text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
+            title="Pedir el visto bueno del diseño (adjunta la imagen en WhatsApp)"
+          >
+            <i className="fa-brands fa-whatsapp" aria-hidden="true" />
+            Enviar prueba
+          </a>
+        )}
         {pedido.estado === 'listo' ? (
           <>
             <a
@@ -303,6 +334,7 @@ function Tarjeta({
               <li key={e.id}>
                 {shortDateTime(e.createdAt)} · <span className="font-semibold">{NOMBRE_ESTADO[e.estado]}</span>
                 {e.author && ` · ${e.author}`}
+                {e.nota && <span className="block pl-2 italic">{e.nota}</span>}
               </li>
             ))
           )}
@@ -316,7 +348,7 @@ function Tarjeta({
  * Entregar con saldo pendiente: se cobra ahí mismo o se deja anotado, pero no
  * se entrega sin que quien lo hace lo vea.
  */
-function EntregarModal({ t, onClose }: { t: TrabajoEnTablero; onClose: () => void }) {
+function EntregarModal({ t, nota, onClose }: { t: TrabajoEnTablero; nota: string; onClose: () => void }) {
   const { avanzarTrabajo, abonarDeuda } = useData()
   const toast = useToast()
   const [metodo, setMetodo] = useState<PaymentMethod>('Efectivo')
@@ -326,7 +358,7 @@ function EntregarModal({ t, onClose }: { t: TrabajoEnTablero; onClose: () => voi
     setGuardando(true)
     try {
       if (cobrar && t.deuda && t.saldo > 0) await abonarDeuda(t.deuda.id, t.saldo, metodo)
-      await avanzarTrabajo(t.pedido.id, 'entregado')
+      await avanzarTrabajo(t.pedido.id, 'entregado', nota)
       toast.success(cobrar ? `Cobrado ${money(t.saldo)} y entregado` : `Entregado a ${t.pedido.party}`)
       onClose()
     } catch (error) {
@@ -379,6 +411,52 @@ function EntregarModal({ t, onClose }: { t: TrabajoEnTablero; onClose: () => voi
             </button>
           </div>
         )}
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * Antes de imprimir: quién dio el visto bueno al diseño y cómo. Queda en el
+ * historial del trabajo; si luego hay reclamo, se sabe qué se aprobó.
+ */
+function AprobacionModal({ t, onAprobar, onClose }: { t: TrabajoEnTablero; onAprobar: (nota: string) => void; onClose: () => void }) {
+  const [detalle, setDetalle] = useState('')
+  const opciones = [
+    ['El cliente aprobó por WhatsApp', 'fa-brands fa-whatsapp'],
+    ['El cliente aprobó en persona', 'fa-solid fa-user-check'],
+    ['No lleva diseño que aprobar', 'fa-solid fa-ban'],
+  ] as const
+  return (
+    <Modal open onClose={onClose} title="¿Quién aprobó el diseño?" subtitle={t.pedido.party} icon="fa-circle-check">
+      <div className="space-y-3">
+        <p className="text-xs text-slate-600 dark:text-slate-300">{t.pedido.items.map((i) => i.description).join(' + ')}</p>
+        <div className="grid gap-2">
+          {opciones.map(([texto, icono]) => (
+            <button
+              key={texto}
+              type="button"
+              onClick={() => onAprobar(detalle.trim() ? `${texto}: ${detalle.trim()}` : texto)}
+              className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition-colors hover:border-brand-400 hover:bg-brand-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-brand-500/10"
+            >
+              <i className={`${icono} w-4 text-brand-700 dark:text-brand-300`} aria-hidden="true" />
+              {texto}
+            </button>
+          ))}
+        </div>
+        <div>
+          <label className="field-label" htmlFor="aprob-detalle">
+            Detalle <span className="font-normal text-slate-400">(opcional)</span>
+          </label>
+          <input
+            id="aprob-detalle"
+            value={detalle}
+            onChange={(e) => setDetalle(e.target.value)}
+            placeholder="Ej: con el logo más grande"
+            maxLength={120}
+            className="field"
+          />
+        </div>
       </div>
     </Modal>
   )

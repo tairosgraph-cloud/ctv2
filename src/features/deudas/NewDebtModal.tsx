@@ -34,7 +34,7 @@ function prepararDictado(dictado: Borrador | null, partes: ReturnType<typeof use
 }
 
 export function NewDebtModal({ open, onClose, editing = null, dictado = null }: Props) {
-  const { addDebt, editDebt } = useData()
+  const { addDebt, editDebt, clientes } = useData()
   const { confirmar } = useDictado()
   const partes = usePartes()
   const toast = useToast()
@@ -178,6 +178,8 @@ export function NewDebtModal({ open, onClose, editing = null, dictado = null }: 
           <input
             id="debt-party"
             value={party}
+            list="lista-clientes-deuda"
+            autoComplete="off"
             onChange={(event) => {
               setParty(event.target.value)
               editar('parte')
@@ -186,6 +188,13 @@ export function NewDebtModal({ open, onClose, editing = null, dictado = null }: 
             className={`field${campos.clase('parte')}`}
             {...campos.describe('parte')}
           />
+          <datalist id="lista-clientes-deuda">
+            {clientes
+              .filter((c) => c.proveedor === (kind === 'PAGAR'))
+              .map((c) => (
+                <option key={c.id} value={c.nombre} />
+              ))}
+          </datalist>
         </div>
 
         <div>

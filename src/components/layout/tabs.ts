@@ -51,6 +51,22 @@ export const TABS: TabDef[] = [
     subtitle: 'Control de deudas de clientes, cuentas a proveedores y abonos.',
   },
   {
+    key: 'clientes',
+    label: 'Clientes',
+    icon: 'fa-address-book',
+    group: 'Gestión y Cuentas',
+    title: 'Clientes y proveedores',
+    subtitle: 'Sus datos, sus pedidos y lo que deben, en un solo sitio.',
+  },
+  {
+    key: 'catalogo',
+    label: 'Catálogo',
+    icon: 'fa-tags',
+    group: 'Gestión y Cuentas',
+    title: 'Catálogo de precios',
+    subtitle: 'Productos con su precio según la cantidad.',
+  },
+  {
     key: 'arqueo',
     label: 'Arqueo de Caja',
     icon: 'fa-chart-pie',

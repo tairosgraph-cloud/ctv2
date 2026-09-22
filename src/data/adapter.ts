@@ -19,6 +19,10 @@ import type {
   EstadoTrabajo,
   EventoTrabajo,
   PedidoDesdeProforma,
+  Cliente,
+  CambiosCliente,
+  Producto,
+  ProductoAGuardar,
 } from '@/types'
 
 export interface ConvertResult {
@@ -87,14 +91,24 @@ export interface DataAdapter {
    * y recalcula el saldo. Rechaza dejar el total por debajo de lo ya cobrado.
    */
   updateWorkOrder(id: string, input: UpdateWorkOrder): Promise<WorkOrderResult>
-  /** Mueve un trabajo de estado y lo anota en su historial. */
-  avanzarTrabajo(id: string, estado: EstadoTrabajo, author: string): Promise<void>
+  /** Mueve un trabajo de estado y lo anota en su historial (con la nota de aprobación, si la hay). */
+  avanzarTrabajo(id: string, estado: EstadoTrabajo, author: string, nota?: string): Promise<void>
   /** Cambia (o quita, con null) la fecha de entrega. */
   fijarEntrega(id: string, entrega: string | null): Promise<void>
   /** Los cambios de estado de un trabajo, del más antiguo al más reciente. */
   listEventosTrabajo(workOrderId: string): Promise<EventoTrabajo[]>
   /** La proforma aceptada pasa a pedido, con su adelanto o al crédito, de una vez. */
   pedidoDesdeProforma(proformaId: string, datos: PedidoDesdeProforma): Promise<WorkOrderResult>
+
+  listClientes(): Promise<Cliente[]>
+  /** Un cliente nuevo a mano (al registrar, la base los crea sola). */
+  crearCliente(datos: Omit<Cliente, 'id' | 'createdAt'>): Promise<Cliente>
+  actualizarCliente(id: string, cambios: CambiosCliente): Promise<Cliente>
+
+  listProductos(): Promise<Producto[]>
+  /** Crea o reemplaza un producto con toda su escala de precios, de una vez. */
+  guardarProducto(producto: ProductoAGuardar): Promise<string>
+  borrarProducto(id: string): Promise<void>
 
   listClosings(): Promise<CashClosing[]>
   createClosing(input: NewClosing): Promise<CashClosing>

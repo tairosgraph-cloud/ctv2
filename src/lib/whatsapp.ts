@@ -26,6 +26,10 @@ export const mensaje = {
     `Hola ${pedido.party}, tu pedido (${resumen(pedido)}) ya está listo para recoger.` +
     (saldo > 0 ? ` Queda un saldo de ${money(saldo)}.` : '') +
     ' ¡Gracias!',
+  /** Para pedir el visto bueno del diseño: la imagen se adjunta en WhatsApp. */
+  prueba: (pedido: WorkOrder) =>
+    `Hola ${pedido.party}, te envío la prueba de tu pedido (${resumen(pedido)}). ` +
+    '¿Me confirmas si está bien para imprimir? Si hay que cambiar algo, dime qué.',
   saldo: (parte: string, concepto: string, saldo: number) =>
     `Hola ${parte}, te recordamos que queda un saldo de ${money(saldo)} por ${concepto.replace(/^Saldo de:\s*/i, '')}. ¡Gracias!`,
   proforma: (pf: Proforma) =>

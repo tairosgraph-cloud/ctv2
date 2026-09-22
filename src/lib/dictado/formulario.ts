@@ -10,9 +10,10 @@
  *
  * Los nombres se emparejan con los que ya existen (src/lib/partes.ts).
  */
+import { describirLinea, productoEnDescripcion, totalDe } from '@/lib/catalogo'
 import { money } from '@/lib/format'
 import { buscarParte, normalizar, type Parte } from '@/lib/partes'
-import { CATEGORIES, PAYMENT_METHODS, type Debt, type DebtKind, type PaymentMethod, type TxType } from '@/types'
+import { CATEGORIES, PAYMENT_METHODS, type Debt, type DebtKind, type PaymentMethod, type Producto, type TxType } from '@/types'
 import { rutaDe, VIGENCIAS, type Ambiguedad, type Extraccion, type Vigencia } from '../../../supabase/functions/_shared/dictado/tipos.ts'
 
 export interface Opcion {
@@ -109,7 +110,11 @@ export interface FormularioPedido extends Dictado {
   entrega: string | null
 }
 
-export function formularioDePedido(ex: Extraccion, catalogo: ReadonlyArray<Parte>): FormularioPedido | null {
+export function formularioDePedido(
+  ex: Extraccion,
+  catalogo: ReadonlyArray<Parte>,
+  productos: ReadonlyArray<Producto> = [],
+): FormularioPedido | null {
   const p = ex.pedido
   if (!p || rutaDe(ex.intent) !== 'registro') return null
 
@@ -167,6 +172,24 @@ export function formularioDePedido(ex: Extraccion, catalogo: ReadonlyArray<Parte
       dudas.push(...duda('categoria', '¿De qué categoría?', deLista(a, CATEGORIES)))
     }
   }
+
+  // Una línea sin precio que nombra un producto del catálogo: se sugiere su
+  // precio. Nunca sustituye un precio dicho, y si ya había dos lecturas («180
+  // o 360») el del catálogo se suma como una opción más.
+  lineas.forEach((linea, i) => {
+    if (linea.monto !== '') return
+    const encontrado = productoEnDescripcion(linea.descripcion, productos)
+    const total = encontrado ? totalDe(encontrado.producto, encontrado.cantidad) : null
+    if (!encontrado || total === null) return
+    const opcion = { valor: String(total), texto: `${money(total)} (catálogo)` }
+    const campo = `items.${i}.monto`
+    const existente = dudas.find((d) => d.campo === campo)
+    if (existente) {
+      if (!existente.opciones.some((o) => Number(o.valor) === total)) existente.opciones.push(opcion)
+    } else {
+      dudas.push({ campo, pregunta: `Según el catálogo, ${describirLinea(encontrado.producto, encontrado.cantidad)}:`, opciones: [opcion] })
+    }
+  })
 
   const conDuda = new Set(dudas.map((d) => d.campo))
   const faltantes = ex.faltantes

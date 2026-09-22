@@ -21,6 +21,11 @@ import type {
   EstadoTrabajo,
   EventoTrabajo,
   PedidoDesdeProforma,
+  Cliente,
+  CambiosCliente,
+  Producto,
+  ProductoAGuardar,
+  Unidad,
 } from '@/types'
 import type { ConvertResult, DataAdapter, NewClosing, PaymentResult } from './adapter'
 
@@ -113,6 +118,7 @@ type ProformaRow = {
   issued_at: string
   transaction_id: string | null
   work_order_id: string | null
+  cliente_id?: string | null
 }
 
 const toProforma = (r: ProformaRow): Proforma => ({
@@ -126,6 +132,7 @@ const toProforma = (r: ProformaRow): Proforma => ({
   issuedAt: r.issued_at,
   transactionId: r.transaction_id,
   workOrderId: r.work_order_id ?? null,
+  clienteId: r.cliente_id ?? null,
 })
 
 type DebtRow = {
@@ -140,6 +147,7 @@ type DebtRow = {
   due_date: string | null
   created_at: string
   work_order_id: string | null
+  cliente_id?: string | null
 }
 
 const toDebt = (r: DebtRow): Debt => ({
@@ -154,6 +162,7 @@ const toDebt = (r: DebtRow): Debt => ({
   dueDate: r.due_date,
   createdAt: r.created_at,
   workOrderId: r.work_order_id ?? null,
+  clienteId: r.cliente_id ?? null,
 })
 
 type PaymentRow = {
@@ -189,6 +198,7 @@ type WorkOrderRow = {
   estado: EstadoTrabajo | null
   entrega: string | null
   estado_at: string | null
+  cliente_id?: string | null
   work_order_items: Array<{
     id: string
     position: number
@@ -213,6 +223,7 @@ const toWorkOrder = (r: WorkOrderRow): WorkOrder => ({
   estado: r.estado ?? 'entregado',
   entrega: r.entrega ?? null,
   estadoAt: r.estado_at ?? r.created_at,
+  clienteId: r.cliente_id ?? null,
   items: (r.work_order_items ?? [])
     .map<WorkOrderItem>((i) => ({
       id: i.id,
@@ -243,6 +254,46 @@ const toClosing = (r: ClosingRow): CashClosing => ({
   notes: r.notes ?? '',
   author: r.author,
   closedAt: r.closed_at,
+})
+
+type ClienteRow = {
+  id: string
+  nombre: string
+  telefono: string
+  documento: string
+  notas: string
+  proveedor: boolean
+  created_at: string
+}
+
+const toCliente = (r: ClienteRow): Cliente => ({
+  id: r.id,
+  nombre: r.nombre,
+  telefono: r.telefono ?? '',
+  documento: r.documento ?? '',
+  notas: r.notas ?? '',
+  proveedor: Boolean(r.proveedor),
+  createdAt: r.created_at,
+})
+
+type ProductoRow = {
+  id: string
+  nombre: string
+  unidad: Unidad
+  categoria: string
+  activo: boolean
+  precios_producto: Array<{ desde: string | number; precio: string | number }> | null
+}
+
+const toProducto = (r: ProductoRow): Producto => ({
+  id: r.id,
+  nombre: r.nombre,
+  unidad: r.unidad,
+  categoria: r.categoria,
+  activo: r.activo,
+  precios: (r.precios_producto ?? [])
+    .map((p) => ({ desde: Number(p.desde), precio: Number(p.precio) }))
+    .sort((a, b) => a.desde - b.desde),
 })
 
 interface RpcIds {
@@ -573,8 +624,8 @@ export const supabaseAdapter: DataAdapter = {
     return readWorkOrderResult(ids)
   },
 
-  async avanzarTrabajo(id: string, estado: EstadoTrabajo, author: string) {
-    const { error } = await client().rpc('avanzar_trabajo', { p_id: id, p_estado: estado, p_author: author })
+  async avanzarTrabajo(id: string, estado: EstadoTrabajo, author: string, nota = '') {
+    const { error } = await client().rpc('avanzar_trabajo', { p_id: id, p_estado: estado, p_author: author, p_nota: nota })
     if (error) throw new Error(error.message)
   },
 
@@ -587,10 +638,10 @@ export const supabaseAdapter: DataAdapter = {
     const rows = unwrap(
       await client()
         .from('work_order_events')
-        .select('id, work_order_id, estado, created_at, author')
+        .select('id, work_order_id, estado, created_at, author, nota')
         .eq('work_order_id', workOrderId)
         .order('created_at', { ascending: true })
-        .returns<Array<{ id: string; work_order_id: string; estado: EstadoTrabajo; created_at: string; author: string }>>(),
+        .returns<Array<{ id: string; work_order_id: string; estado: EstadoTrabajo; created_at: string; author: string; nota: string | null }>>(),
     )
     return rows.map<EventoTrabajo>((r) => ({
       id: r.id,
@@ -598,6 +649,7 @@ export const supabaseAdapter: DataAdapter = {
       estado: r.estado,
       createdAt: r.created_at,
       author: r.author,
+      nota: r.nota ?? '',
     }))
   },
 
@@ -662,6 +714,74 @@ export const supabaseAdapter: DataAdapter = {
         .single<ClosingRow>(),
     )
     return toClosing(row)
+  },
+
+  async listClientes() {
+    const rows = await traerTodo<ClienteRow>((desde, hasta) =>
+      client().from('clientes').select('*').order('nombre').range(desde, hasta).returns<ClienteRow[]>(),
+    )
+    return rows.map(toCliente)
+  },
+
+  async crearCliente(datos) {
+    const { data, error } = await client()
+      .from('clientes')
+      .insert({
+        nombre: datos.nombre.trim(),
+        telefono: datos.telefono.replace(/\D/g, ''),
+        documento: datos.documento.trim(),
+        notas: datos.notas,
+        proveedor: datos.proveedor,
+      })
+      .select()
+      .single<ClienteRow>()
+    if (error) throw new Error(error.code === '23505' ? 'Ya hay un cliente con ese nombre' : error.message)
+    return toCliente(data)
+  },
+
+  async actualizarCliente(id: string, cambios: CambiosCliente) {
+    const { data, error } = await client()
+      .from('clientes')
+      .update({
+        ...cambios,
+        ...(cambios.telefono !== undefined ? { telefono: cambios.telefono.replace(/\D/g, '') } : {}),
+      })
+      .eq('id', id)
+      .select()
+      .returns<ClienteRow[]>()
+    if (error) throw new Error(error.code === '23505' ? 'Ya hay un cliente con ese nombre' : error.message)
+    if (!data?.length) throw new Error('No se guardó: el cliente no existe o tu cuenta no puede cambiarlo')
+    return toCliente(data[0])
+  },
+
+  async listProductos() {
+    const rows = unwrap(
+      await client()
+        .from('productos')
+        .select('*, precios_producto(*)')
+        .order('nombre')
+        .returns<ProductoRow[]>(),
+    )
+    return rows.map(toProducto)
+  },
+
+  async guardarProducto(producto: ProductoAGuardar) {
+    const { data, error } = await client().rpc('guardar_producto', {
+      p_id: producto.id,
+      p_nombre: producto.nombre,
+      p_unidad: producto.unidad,
+      p_categoria: producto.categoria,
+      p_activo: producto.activo,
+      p_precios: producto.precios,
+    })
+    if (error) throw new Error(error.code === '23505' ? 'Ya hay un producto con ese nombre' : error.message)
+    return data as string
+  },
+
+  async borrarProducto(id: string) {
+    const { data, error } = await client().from('productos').delete().eq('id', id).select('id')
+    if (error) throw new Error(error.message)
+    if (!data?.length) throw new Error('No se borró: el producto no existe o tu cuenta no puede cambiar el catálogo')
   },
 
   async registrarDictado(input: NuevoDictado) {

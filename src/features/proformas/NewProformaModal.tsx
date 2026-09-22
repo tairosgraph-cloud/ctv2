@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { ElegirDelCatalogo } from '@/components/catalogo/ElegirDelCatalogo'
 import { AvisoDictado } from '@/components/dictado/AvisoDictado'
 import { Modal } from '@/components/ui/Modal'
 import { useCamposDictados } from '@/hooks/useCamposDictados'
@@ -40,7 +41,8 @@ function prepararDictado(dictado: Borrador | null, partes: ReturnType<typeof use
 }
 
 export function NewProformaModal({ open, onClose, editing = null, dictado = null }: Props) {
-  const { addProforma, editProforma } = useData()
+  const { addProforma, editProforma, clientes, productos } = useData()
+  const [delCatalogo, setDelCatalogo] = useState(false)
   const { confirmar } = useDictado()
   const partes = usePartes()
   const toast = useToast()
@@ -155,6 +157,8 @@ export function NewProformaModal({ open, onClose, editing = null, dictado = null
           <input
             id="pf-client"
             value={client}
+            list="lista-clientes-proforma"
+            autoComplete="off"
             onChange={(event) => {
               setClient(event.target.value)
               editar('cliente')
@@ -163,12 +167,31 @@ export function NewProformaModal({ open, onClose, editing = null, dictado = null
             className={`field${campos.clase('cliente')}`}
             {...campos.describe('cliente')}
           />
+          <datalist id="lista-clientes-proforma">
+            {clientes
+              .filter((c) => !c.proveedor)
+              .map((c) => (
+                <option key={c.id} value={c.nombre} />
+              ))}
+          </datalist>
         </div>
 
         <div>
-          <label className="field-label" htmlFor="pf-detail">
-            Detalle / servicios a cotizar
-          </label>
+          <div className="flex items-baseline justify-between gap-2">
+            <label className="field-label" htmlFor="pf-detail">
+              Detalle / servicios a cotizar
+            </label>
+            {productos.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setDelCatalogo(true)}
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-bold text-brand-700 transition-colors hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-500/10"
+              >
+                <i className="fa-solid fa-tags text-[10px]" aria-hidden="true" />
+                Del catálogo
+              </button>
+            )}
+          </div>
           <textarea
             id="pf-detail"
             rows={3}
@@ -233,6 +256,19 @@ export function NewProformaModal({ open, onClose, editing = null, dictado = null
           </button>
         </div>
       </form>
+      {delCatalogo && (
+        <ElegirDelCatalogo
+          productos={productos}
+          // Se suma a lo ya cotizado: una proforma puede llevar varios trabajos.
+          onElegir={({ descripcion, monto }) => {
+            setDetail((actual) => (actual.trim() ? `${actual.trim()} + ${descripcion}` : descripcion))
+            setTotal((actual) => String(Math.round((parseAmount(actual) + monto) * 100) / 100))
+            editar('detalle')
+            editar('total')
+          }}
+          onClose={() => setDelCatalogo(false)}
+        />
+      )}
     </Modal>
   )
 }

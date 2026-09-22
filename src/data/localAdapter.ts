@@ -16,7 +16,12 @@ import type {
   EstadoTrabajo,
   EventoTrabajo,
   PedidoDesdeProforma,
+  Cliente,
+  CambiosCliente,
+  Producto,
+  ProductoAGuardar,
 } from '@/types'
+import { normalizar } from '@/lib/partes'
 import type { ConvertResult, DataAdapter, NewClosing, PaymentResult } from './adapter'
 import { generarDemoIntermedio } from './demoIntermedio'
 
@@ -42,6 +47,9 @@ interface Store {
   proformaSeq: number
   /** Historial de estados de los trabajos (0013). */
   eventos: EventoTrabajo[]
+  /** Clientes y proveedores (0014): se crean y vinculan solos al escribir. */
+  clientes: Cliente[]
+  productos: Producto[]
 }
 
 function seeded(): Store {
@@ -59,7 +67,36 @@ function seeded(): Store {
     voucherSeq: demo.voucherSeq,
     proformaSeq: demo.proformaSeq,
     eventos: [],
+    clientes: [],
+    productos: [],
   }
+}
+
+const soloCifras = (t: string) => t.replace(/\D/g, '')
+
+/**
+ * Lo que en la base hace el disparador de 0014: cada pedido, deuda y proforma
+ * apunta al cliente de su nombre (normalizado), y el cliente se crea si no
+ * existe. Se aplica antes de cada escritura, así ningún camino se queda sin él.
+ */
+function vincularClientes(store: Store): void {
+  const porClave = new Map(store.clientes.map((c) => [normalizar(c.nombre), c]))
+  const para = (nombre: string, telefono: string, proveedor: boolean): string | null => {
+    const clave = normalizar(nombre)
+    if (!clave) return null
+    let c = porClave.get(clave)
+    if (!c) {
+      c = { id: uid(), nombre: nombre.trim(), telefono: soloCifras(telefono), documento: '', notas: '', proveedor, createdAt: new Date().toISOString() }
+      store.clientes.push(c)
+      porClave.set(clave, c)
+    } else if (!c.telefono && soloCifras(telefono)) {
+      c.telefono = soloCifras(telefono)
+    }
+    return c.id
+  }
+  for (const w of store.workOrders) w.clienteId = para(w.party, w.phone, w.kind === 'Egreso')
+  for (const d of store.debts) d.clienteId = para(d.party, '', d.kind === 'PAGAR')
+  for (const p of store.proformas) p.clienteId = para(p.client, '', false)
 }
 
 /**
@@ -67,9 +104,11 @@ function seeded(): Store {
  * antes queda entregado, como hizo 0013 con la base.
  */
 function alDia(store: Store): Store {
-  return {
+  const listo: Store = {
     ...store,
-    eventos: store.eventos ?? [],
+    eventos: (store.eventos ?? []).map((e) => ({ ...e, nota: e.nota ?? '' })),
+    clientes: store.clientes ?? [],
+    productos: store.productos ?? [],
     workOrders: store.workOrders.map((w) => ({
       ...w,
       estado: w.estado ?? 'entregado',
@@ -78,13 +117,15 @@ function alDia(store: Store): Store {
     })),
     proformas: store.proformas.map((p) => ({ ...p, workOrderId: p.workOrderId ?? null })),
   }
+  vincularClientes(listo)
+  return listo
 }
 
 function read(): Store {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) {
-      const fresh = seeded()
+      const fresh = alDia(seeded())
       write(fresh)
       return fresh
     }
@@ -105,6 +146,7 @@ function write(store: Store): void {
 function mutate<T>(fn: (store: Store) => T): T {
   const store = read()
   const result = fn(store)
+  vincularClientes(store)
   write(store)
   return result
 }
@@ -189,6 +231,7 @@ export const localAdapter: DataAdapter = {
         status: 'Vigente',
         issuedAt: new Date().toISOString(),
         workOrderId: null,
+        clienteId: null,
         transactionId: null,
       }
       store.proformas.unshift(pf)
@@ -271,6 +314,7 @@ export const localAdapter: DataAdapter = {
         dueDate: input.dueDate ?? null,
         createdAt: new Date().toISOString(),
         workOrderId: null,
+        clienteId: null,
       }
       store.debts.unshift(base)
       return withBalance(base, store.payments)
@@ -409,6 +453,7 @@ export const localAdapter: DataAdapter = {
       estado: input.estado ?? 'entregado',
       entrega: input.entrega ?? null,
       estadoAt: ahora,
+      clienteId: null,
     }
 
     mutate((store) => {
@@ -419,6 +464,7 @@ export const localAdapter: DataAdapter = {
         estado: workOrder.estado,
         createdAt: workOrder.estadoAt,
         author: input.author,
+        nota: '',
       })
     })
 
@@ -454,6 +500,7 @@ export const localAdapter: DataAdapter = {
               dueDate: null,
               createdAt: new Date().toISOString(),
               workOrderId: orderId,
+              clienteId: null,
             }
             store.debts.unshift(base)
             return withBalance(base, store.payments)
@@ -463,13 +510,13 @@ export const localAdapter: DataAdapter = {
     return { workOrder, transaction, debt }
   },
 
-  async avanzarTrabajo(id: string, estado: EstadoTrabajo, author: string) {
+  async avanzarTrabajo(id: string, estado: EstadoTrabajo, author: string, nota = '') {
     mutate((store) => {
       const w = store.workOrders.find((x) => x.id === id)
       if (!w) throw new Error('El pedido no existe')
       w.estado = estado
       w.estadoAt = new Date().toISOString()
-      store.eventos.push({ id: uid(), workOrderId: id, estado, createdAt: w.estadoAt, author })
+      store.eventos.push({ id: uid(), workOrderId: id, estado, createdAt: w.estadoAt, author, nota: nota.slice(0, 200) })
     })
   },
 
@@ -618,6 +665,7 @@ export const localAdapter: DataAdapter = {
             dueDate: null,
             createdAt: new Date().toISOString(),
             workOrderId: id,
+            clienteId: null,
           }
           s2.debts.unshift(debtBase)
         }
@@ -631,6 +679,83 @@ export const localAdapter: DataAdapter = {
         transaction,
         debt: debtBase ? withBalance(debtBase, s2.payments) : null,
       }
+    })
+  },
+
+  async listClientes() {
+    return read()
+      .clientes.slice()
+      .sort((a, b) => a.nombre.localeCompare(b.nombre))
+  },
+
+  async crearCliente(datos) {
+    return mutate((store) => {
+      if (store.clientes.some((c) => normalizar(c.nombre) === normalizar(datos.nombre))) {
+        throw new Error('Ya hay un cliente con ese nombre')
+      }
+      const cliente: Cliente = {
+        ...datos,
+        nombre: datos.nombre.trim(),
+        telefono: soloCifras(datos.telefono),
+        id: uid(),
+        createdAt: new Date().toISOString(),
+      }
+      store.clientes.push(cliente)
+      return { ...cliente }
+    })
+  },
+
+  async actualizarCliente(id: string, cambios: CambiosCliente) {
+    return mutate((store) => {
+      const c = store.clientes.find((x) => x.id === id)
+      if (!c) throw new Error('El cliente no existe')
+      if (cambios.nombre !== undefined) {
+        const clave = normalizar(cambios.nombre)
+        if (store.clientes.some((x) => x.id !== id && normalizar(x.nombre) === clave)) {
+          throw new Error('Ya hay un cliente con ese nombre')
+        }
+        c.nombre = cambios.nombre.trim()
+      }
+      if (cambios.telefono !== undefined) c.telefono = soloCifras(cambios.telefono)
+      if (cambios.documento !== undefined) c.documento = cambios.documento.trim()
+      if (cambios.notas !== undefined) c.notas = cambios.notas
+      if (cambios.proveedor !== undefined) c.proveedor = cambios.proveedor
+      return { ...c }
+    })
+  },
+
+  async listProductos() {
+    return read()
+      .productos.slice()
+      .sort((a, b) => a.nombre.localeCompare(b.nombre))
+  },
+
+  async guardarProducto(producto: ProductoAGuardar) {
+    if (!producto.precios.length) throw new Error('El producto necesita al menos un precio')
+    if (producto.precios.some((p) => !(p.desde > 0) || !(p.precio > 0))) {
+      throw new Error('Cada precio necesita una cantidad y un precio mayores a cero')
+    }
+    return mutate((store) => {
+      const clave = normalizar(producto.nombre)
+      if (store.productos.some((p) => p.id !== producto.id && normalizar(p.nombre) === clave)) {
+        throw new Error('Ya hay un producto con ese nombre')
+      }
+      const precios = [...producto.precios].sort((a, b) => a.desde - b.desde)
+      if (producto.id) {
+        const p = store.productos.find((x) => x.id === producto.id)
+        if (!p) throw new Error('El producto no existe')
+        Object.assign(p, { ...producto, nombre: producto.nombre.trim(), precios })
+        return p.id
+      }
+      const id = uid()
+      store.productos.push({ ...producto, id, nombre: producto.nombre.trim(), precios })
+      return id
+    })
+  },
+
+  async borrarProducto(id: string) {
+    mutate((store) => {
+      store.productos = store.productos.filter((p) => p.id !== id)
     })
   },
 

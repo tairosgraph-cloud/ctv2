@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type FormEvent } from 'react'
+import { ElegirDelCatalogo } from '@/components/catalogo/ElegirDelCatalogo'
 import { AvisoDictado } from '@/components/dictado/AvisoDictado'
 import { MicButton } from '@/components/ui/MicButton'
 import { useCamposDictados } from '@/hooks/useCamposDictados'
@@ -9,6 +10,7 @@ import { useToast } from '@/hooks/useToast'
 import { hoyEnLima } from '@/lib/dictado/extraer'
 import { formularioDePedido, type Duda, type FormularioPedido } from '@/lib/dictado/formulario'
 import { money, parseAmount } from '@/lib/format'
+import { normalizar } from '@/lib/partes'
 import { useData } from '@/store/DataProvider'
 import {
   CATEGORIES,
@@ -74,6 +76,8 @@ interface LedgerFormProps {
   editing?: WorkOrder | null
   /** Si se pasa, el formulario arranca con lo dictado desde la barra superior. */
   dictado?: Borrador | null
+  /** Un pedido nuevo para un cliente ya elegido (desde su ficha). */
+  paraCliente?: { nombre: string; telefono: string } | null
 }
 
 /** Lo dictado, traducido a lo que el formulario pone en pantalla. */
@@ -98,15 +102,15 @@ function prepararAplicacion(formulario: FormularioPedido, libres: JobLine[]): Ap
   }
 }
 
-export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: LedgerFormProps = {}) {
-  const { registerWorkOrder, editWorkOrder, transactions } = useData()
+export function LedgerForm({ onSaved, onCancel, editing, dictado = null, paraCliente = null }: LedgerFormProps = {}) {
+  const { registerWorkOrder, editWorkOrder, transactions, clientes, productos } = useData()
   const { interpretar, confirmar } = useDictado()
   const partes = usePartes()
   const toast = useToast()
 
   // El dictado que abrió el formulario se traduce una sola vez, al montar.
   const [arranque] = useState<Aplicacion | null>(() => {
-    const formulario = dictado ? formularioDePedido(dictado.resultado.extraccion, partes) : null
+    const formulario = dictado ? formularioDePedido(dictado.resultado.extraccion, partes, productos) : null
     return formulario ? prepararAplicacion(formulario, []) : null
   })
   const inicial = arranque?.formulario
@@ -117,8 +121,8 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
     : 'Efectivo'
 
   const [type, setType] = useState<TxType>(editing?.kind ?? inicial?.tipo ?? 'Ingreso')
-  const [party, setParty] = useState(editing?.party ?? inicial?.parte ?? '')
-  const [phone, setPhone] = useState(editing?.phone ?? inicial?.telefono ?? '')
+  const [party, setParty] = useState(editing?.party ?? inicial?.parte ?? paraCliente?.nombre ?? '')
+  const [phone, setPhone] = useState(editing?.phone ?? inicial?.telefono ?? paraCliente?.telefono ?? '')
   const [lines, setLines] = useState<JobLine[]>(
     editing?.items.length
       ? editing.items.map((i) => ({
@@ -139,6 +143,7 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
   )
   const [saving, setSaving] = useState(false)
   const [interpretando, setInterpretando] = useState(false)
+  const [delCatalogo, setDelCatalogo] = useState(false)
   /**
    * Cuándo se lleva el trabajo. 'ya' = venta al instante (no ocupa el tablero
    * de Trabajos); 'fecha' = comprometida; 'pendiente' = en el taller, sin día.
@@ -201,6 +206,22 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
 
   const addLine = () => setLines((current) => [...current, emptyLine()])
 
+  /** Una línea del catálogo ocupa la primera vacía, o se añade. */
+  const addDelCatalogo = (linea: { descripcion: string; monto: number }) =>
+    setLines((current) => {
+      const nueva = { key: nextKey++, description: linea.descripcion, amount: String(linea.monto) }
+      const vacia = current.findIndex((l) => !l.description.trim() && !l.amount.trim())
+      return vacia >= 0 ? current.map((l, i) => (i === vacia ? nueva : l)) : [...current, nueva]
+    })
+
+  /** Elegir un cliente que ya existe trae su teléfono, si aquí no hay uno. */
+  const alCambiarParte = (valor: string) => {
+    setParty(valor)
+    editar('party')
+    const conocido = clientes.find((c) => normalizar(c.nombre) === normalizar(valor))
+    if (conocido?.telefono && !phone.trim()) setPhone(conocido.telefono)
+  }
+
   const removeLine = (key: number) => {
     setLines((current) => (current.length === 1 ? current : current.filter((l) => l.key !== key)))
     campos.quitar(`descripcion-${key}`)
@@ -214,7 +235,7 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
    * tipo, la categoría, «pagó todo») no pisa lo que ya estaba.
    */
   const aplicar = (b: Borrador) => {
-    const formulario = formularioDePedido(b.resultado.extraccion, partes)
+    const formulario = formularioDePedido(b.resultado.extraccion, partes, productos)
     if (!formulario) return
     const supuesto = new Set(b.resultado.extraccion.supuestos)
     // Líneas nuevas siempre, con claves nuevas; las vacías se quitan dentro
@@ -496,14 +517,20 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
         <input
           id="tx-party"
           value={party}
-          onChange={(event) => {
-            setParty(event.target.value)
-            editar('party')
-          }}
+          list="lista-clientes"
+          autoComplete="off"
+          onChange={(event) => alCambiarParte(event.target.value)}
           placeholder={isCobrar ? 'Ej: Cliente Juan Pérez' : 'Ej: Proveedor Pacheco S.A.C.'}
           className={`field${campos.clase('party')}`}
           {...campos.describe('party')}
         />
+        <datalist id="lista-clientes">
+          {clientes
+            .filter((c) => c.proveedor === !isCobrar)
+            .map((c) => (
+              <option key={c.id} value={c.nombre} />
+            ))}
+        </datalist>
       </div>
 
       <div>
@@ -575,14 +602,26 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
         </div>
 
         <div className="mt-2 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={addLine}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-bold text-brand-700 dark:text-brand-300 transition-colors hover:bg-brand-50 dark:hover:bg-brand-500/10"
-          >
-            <i className="fa-solid fa-plus text-[10px]" aria-hidden="true" />
-            Agregar trabajo
-          </button>
+          <span className="flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              onClick={addLine}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-bold text-brand-700 dark:text-brand-300 transition-colors hover:bg-brand-50 dark:hover:bg-brand-500/10"
+            >
+              <i className="fa-solid fa-plus text-[10px]" aria-hidden="true" />
+              Agregar trabajo
+            </button>
+            {productos.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setDelCatalogo(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-bold text-brand-700 dark:text-brand-300 transition-colors hover:bg-brand-50 dark:hover:bg-brand-500/10"
+              >
+                <i className="fa-solid fa-tags text-[10px]" aria-hidden="true" />
+                Del catálogo
+              </button>
+            )}
+          </span>
           <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
             Total: <span className="tabular-nums text-slate-900 dark:text-slate-50">{money(total)}</span>
           </p>
@@ -818,6 +857,7 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
                   : 'Guardar asiento'}
         </button>
       </div>
+      {delCatalogo && <ElegirDelCatalogo productos={productos} onElegir={addDelCatalogo} onClose={() => setDelCatalogo(false)} />}
     </form>
   )
 }

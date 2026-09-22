@@ -9,7 +9,7 @@ import { briefingToSpeech, buildBotMessages, buildDebtBriefing, describirAntigue
 import { diasCalendario, diasParaVencer, esHoy } from '@/lib/fechas'
 import { buildProformaBriefing, diasParaCaducar } from '@/lib/proformas'
 import { answerQuestion } from '@/components/gateway/knowledge'
-import type { CashClosing, Debt, Proforma, Transaction, WorkOrder } from '@/types'
+import type { CashClosing, Debt, Producto, Proforma, Transaction, WorkOrder } from '@/types'
 import { readFileSync } from 'node:fs'
 import { desdeReglas } from '@/lib/dictado/reglas'
 import { validarExtraccion } from '@/lib/dictado/validar'
@@ -25,6 +25,7 @@ import { puerta } from '@/lib/dictado/puerta'
 import { fechaDeEntrega, fechaDeEntregaValida } from '../supabase/functions/_shared/dictado/fechas.ts'
 import { armarTablero, plazoDe, siguienteEstado, textoPlazo } from '@/lib/trabajos'
 import { enlaceWhatsApp, mensaje, numeroPeruano } from '@/lib/whatsapp'
+import { describirLinea, precioPorUnidad, productoEnDescripcion, totalDe } from '@/lib/catalogo'
 import type { Cobro, Extraccion } from '../supabase/functions/_shared/dictado/tipos.ts'
 
 let failures = 0
@@ -388,7 +389,7 @@ async function main() {
 
   const cuentaViva = (id: string, party: string, balance: number, createdAt = '2026-09-01'): Debt => ({
     id, kind: 'COBRAR', party, concept: 'volantes', total: 300, paid: 300 - balance, balance,
-    status: balance > 0 ? 'Parcial' : 'Cancelado', dueDate: null, createdAt, workOrderId: null,
+    status: balance > 0 ? 'Parcial' : 'Cancelado', dueDate: null, createdAt, workOrderId: null, clienteId: null,
   })
   const cuentas = [cuentaViva('a', 'Rosa de la Cruz', 150), cuentaViva('b', 'Juan Pérez Quispe', 80), cuentaViva('c', 'Cliente Juan Pérez', 40), cuentaViva('d', 'Kevin Soto', 0), cuentaViva('e', 'Cristina Mamani', 60)]
   const abonoDe = (parte: string | null) => extraccion({ intent: 'abono', abono: { parte, monto: 50, pago: 'Efectivo' } })
@@ -589,12 +590,12 @@ async function main() {
     id: 'w', kind: 'Ingreso', party: 'X', phone: '', category: 'Ventas', total: 450, advance: 0,
     notes: '', author: 'T', createdAt: '2026-08-22T09:00:00.000Z', updatedAt: null,
     items: [{ id: 'i1', position: 1, description: 'Afiches escolares', amount: 450 }],
-    estado: 'entregado', entrega: null, estadoAt: '2026-08-22T09:00:00.000Z', ...over,
+    estado: 'entregado', entrega: null, estadoAt: '2026-08-22T09:00:00.000Z', clienteId: null, ...over,
   })
   const dbt = (over: Partial<Debt>): Debt => ({
     id: 'd', kind: 'COBRAR', party: 'X', concept: 'c', total: 450, paid: 0, balance: 450,
     status: 'Pendiente', dueDate: null, createdAt: '2026-08-22T09:00:00.000Z',
-    workOrderId: null, ...over,
+    workOrderId: null, clienteId: null, ...over,
   })
 
   // a) pago íntegro sin pedido -> PAGADO y cuenta a caja
@@ -945,7 +946,7 @@ async function main() {
 
   const cuenta = (over: Partial<Debt>): Debt => ({
     id: 'x', kind: 'COBRAR', party: 'X', concept: 'c', total: 100, paid: 0, balance: 100,
-    status: 'Pendiente', dueDate: null, createdAt: hace(1), workOrderId: null, ...over,
+    status: 'Pendiente', dueDate: null, createdAt: hace(1), workOrderId: null, clienteId: null, ...over,
   })
 
   const aviso = buildDebtBriefing([
@@ -1183,12 +1184,81 @@ async function main() {
     .catch((e: Error) => { dosVeces = e.message })
   check('local: no se usa dos veces', /ya se usó/.test(dosVeces), true)
 
+  // --- catálogo: precios por cantidad -----------------------------------------
+  const volantes: Producto = { id: 'v', nombre: 'Volantes A5', unidad: 'millar', categoria: 'Ventas', activo: true,
+    precios: [{ desde: 5, precio: 150 }, { desde: 1, precio: 180 }, { desde: 10, precio: 130 }] }
+  const sellos: Producto = { id: 's', nombre: 'Sellos automáticos', unidad: 'unidad', categoria: 'Ventas', activo: true, precios: [{ desde: 1, precio: 45 }] }
+  const lona: Producto = { id: 'l', nombre: 'Banner lona', unidad: 'm2', categoria: 'Ventas', activo: true, precios: [{ desde: 1, precio: 25 }] }
+  const catalogoPrueba = [volantes, sellos, lona]
+  check('catálogo: 2 millares al precio del primer tramo', [precioPorUnidad(volantes, 2), totalDe(volantes, 2)], [180, 360])
+  check('catálogo: desde 5 baja el precio', totalDe(volantes, 5), 750)
+  check('catálogo: y desde 10 más', totalDe(volantes, 12), 1560)
+  check('catálogo: medio millar paga la tarifa base', totalDe(volantes, 0.5), 90)
+  check('catálogo: sin cantidad no hay precio', totalDe(volantes, 0), null)
+  check('catálogo: cómo se describe', [describirLinea(volantes, 2), describirLinea(volantes, 1), describirLinea(sellos, 3)],
+    ['2 millares de Volantes A5', '1 millar de Volantes A5', '3 Sellos automáticos'])
+  const enDictado = (d: string) => {
+    const r = productoEnDescripcion(d, catalogoPrueba)
+    return r ? [r.producto.id, r.cantidad] : null
+  }
+  check('catálogo: «2 millares de volantes A5»', enDictado('2 millares de volantes A5'), ['v', 2])
+  check('catálogo: «mil volantes a5»', enDictado('mil volantes a5'), ['v', 1])
+  check('catálogo: «500 volantes A5» es medio millar', enDictado('500 volantes A5'), ['v', 0.5])
+  check('catálogo: «3 sellos automáticos»', enDictado('3 sellos automáticos'), ['s', 3])
+  check('catálogo: sin cantidad no se adivina', enDictado('volantes A5'), null)
+  check('catálogo: en m² no se adivina la cantidad', enDictado('2 banners lona'), null)
+  check('catálogo: un producto que no está', enDictado('mil tarjetas'), null)
+  const conCatalogo = formularioDePedido(extraccion({ pedido: { ...pedidoDictado(null, { tipo: 'total', monto: null }), items: [{ descripcion: '2 millares de volantes A5', monto: null }] } }), [], catalogoPrueba)
+  check('catálogo: el dictado sin precio sugiere el del catálogo',
+    conCatalogo?.dudas.map((d) => [d.campo, d.opciones.map((o) => o.valor)]), [['items.0.monto', ['360']]])
+  const millaresConCatalogo = formularioDePedido(reglas('dos millares de volantes A5 a 180 para jhonatan en efectivo'), [], catalogoPrueba)
+  check('catálogo: con dos lecturas, el del catálogo es una opción más (sin repetir)',
+    millaresConCatalogo?.dudas[0]?.opciones.map((o) => o.valor), ['180', '360'])
+  const conPrecioDicho = formularioDePedido(extraccion({ pedido: { ...pedidoDictado(300, { tipo: 'total', monto: 300 }), items: [{ descripcion: '2 millares de volantes A5', monto: 300 }] } }), [], catalogoPrueba)
+  check('catálogo: nunca pisa un precio dicho', [conPrecioDicho?.lineas[0].monto, conPrecioDicho?.dudas.length], ['300', 0])
+
+  // --- clientes: se crean y vinculan solos (modo local) -------------------------
+  const unaVez = await localAdapter.registerWorkOrder({
+    kind: 'Ingreso', party: 'Imprenta Cliente Nuevo', phone: '', category: 'Ventas', payment: 'Efectivo',
+    advance: 10, notes: '', author: 'T', items: [{ description: 'copias', amount: 10 }],
+  })
+  const otraVez = await localAdapter.registerWorkOrder({
+    kind: 'Ingreso', party: 'la señora imprenta cliente nuevo', phone: '987 000 111', category: 'Ventas', payment: 'Efectivo',
+    advance: 10, notes: '', author: 'T', items: [{ description: 'copias', amount: 10 }],
+  })
+  const pedidosCliente = (await localAdapter.listWorkOrders()).filter((w) => w.id === unaVez.workOrder.id || w.id === otraVez.workOrder.id)
+  check('clientes: la misma persona escrita de dos formas es un solo cliente',
+    new Set(pedidosCliente.map((w) => w.clienteId)).size === 1 && pedidosCliente.every((w) => w.clienteId), true)
+  const elCliente = (await localAdapter.listClientes()).find((c) => c.id === pedidosCliente[0].clienteId)
+  check('clientes: con el primer nombre que se escribió y el teléfono que se dio', [elCliente?.nombre, elCliente?.telefono], ['Imprenta Cliente Nuevo', '987000111'])
+  let repetido = ''
+  await localAdapter.crearCliente({ nombre: 'IMPRENTA cliente nuevo', telefono: '', documento: '', notas: '', proveedor: false }).catch((e: Error) => { repetido = e.message })
+  check('clientes: no se crea dos veces', repetido, 'Ya hay un cliente con ese nombre')
+  const clienteCorregido = await localAdapter.actualizarCliente(elCliente!.id, { documento: ' 20123456789 ', telefono: '+51 999-888-777' })
+  check('clientes: se corrigen sus datos', [clienteCorregido.documento, clienteCorregido.telefono], ['20123456789', '51999888777'])
+  const proveedorDeuda = await localAdapter.createDebt({ kind: 'PAGAR', party: 'Papelera Prueba', concept: 'papel', total: 50 })
+  const elProveedor = (await localAdapter.listClientes()).find((c) => c.nombre === 'Papelera Prueba')
+  check('clientes: una deuda por pagar crea un proveedor', [elProveedor?.proveedor, Boolean(proveedorDeuda.id)], [true, true])
+
+  // --- catálogo en modo local -------------------------------------------------
+  let sinPrecios = ''
+  await localAdapter.guardarProducto({ id: null, nombre: 'Nada', unidad: 'unidad', categoria: 'Ventas', activo: true, precios: [] })
+    .catch((e: Error) => { sinPrecios = e.message })
+  check('catálogo: un producto sin precios no se guarda', sinPrecios, 'El producto necesita al menos un precio')
+  const idVolantes = await localAdapter.guardarProducto({ id: null, nombre: 'Volantes A5', unidad: 'millar', categoria: 'Ventas', activo: true,
+    precios: [{ desde: 5, precio: 150 }, { desde: 1, precio: 180 }] })
+  check('catálogo: se guarda con la escala ordenada', (await localAdapter.listProductos()).find((p) => p.id === idVolantes)?.precios.map((p) => p.desde), [1, 5])
+  let productoRepetido = ''
+  await localAdapter.guardarProducto({ id: null, nombre: 'volantes a5', unidad: 'millar', categoria: 'Ventas', activo: true, precios: [{ desde: 1, precio: 1 }] })
+    .catch((e: Error) => { productoRepetido = e.message })
+  check('catálogo: no se repite un nombre', productoRepetido, 'Ya hay un producto con ese nombre')
+
   // --- caducidad de cotizaciones ---------------------------------------------
   // El estado 'Vigente' no caduca solo: sin esto, una proforma muerta seguía
   // contando como dinero en juego en la tarjeta de Registro y en la barra lateral.
   const proforma = (over: Partial<Proforma>): Proforma => ({
     id: 'p', code: 'PRO-001', client: 'Cliente', detail: 'd', total: 100,
-    validityDays: 15, status: 'Vigente', issuedAt: '2026-09-01', transactionId: null, workOrderId: null, ...over,
+    validityDays: 15, status: 'Vigente', issuedAt: '2026-09-01', transactionId: null, workOrderId: null, clienteId: null, ...over,
   })
 
   check('proformas: emitida hoy con 15 días le quedan 15', diasParaCaducar('2026-09-17', 15, noche20), 15)

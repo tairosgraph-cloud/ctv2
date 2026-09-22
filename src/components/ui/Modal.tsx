@@ -12,6 +12,14 @@ interface ModalProps {
   size?: 'md' | 'lg'
 }
 
+/**
+ * Los modales abiertos, del de abajo al de encima. Con uno sobre otro (el
+ * catálogo sobre el formulario de un pedido), solo el de encima atiende a
+ * Escape y al tabulador: si no, un Escape cerraría los dos y se perdería lo
+ * que se estaba escribiendo debajo.
+ */
+const pila: symbol[] = []
+
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -43,8 +51,11 @@ export function Modal({
 
     const panel = panelRef.current
     panel?.querySelector<HTMLElement>(FOCUSABLE)?.focus()
+    const yo = Symbol('modal')
+    pila.push(yo)
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (pila[pila.length - 1] !== yo) return
       if (event.key === 'Escape') {
         event.preventDefault()
         onClose()
@@ -70,6 +81,7 @@ export function Modal({
 
     document.addEventListener('keydown', onKeyDown)
     return () => {
+      pila.splice(pila.indexOf(yo), 1)
       document.removeEventListener('keydown', onKeyDown)
       document.body.style.overflow = overflow
       previouslyFocused.current?.focus?.()

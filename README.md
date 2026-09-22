@@ -17,13 +17,13 @@ actual (Supabase / local) se ve en la esquina inferior de la barra lateral.
 ## Estado: conectado a Supabase ✅
 
 El proyecto está enlazado con una base real y tiene aplicadas las migraciones
-`0001`–`0013` (la `0006` no existe: la sustituyó `0009`). Lo que hay creado:
+`0001`–`0016` (la `0006` no existe: la sustituyó `0009`). Lo que hay creado:
 
 | | |
 | --- | --- |
-| Tablas | `transactions`, `work_orders`, `work_order_items`, `work_order_events`, `proformas`, `debts`, `debt_payments`, `cash_closings`, `profiles`, `voice_extractions`, `uso_dictado` |
+| Tablas | `transactions`, `work_orders`, `work_order_items`, `work_order_events`, `proformas`, `debts`, `debt_payments`, `cash_closings`, `clientes`, `productos`, `precios_producto`, `profiles`, `voice_extractions`, `uso_dictado` |
 | Vista | `debts_with_balance` (respeta RLS: `security_invoker`) |
-| Funciones | `register_work_order`, `update_work_order`, `update_proforma`, `annul_proforma`, `update_debt`, `delete_debt_payment`, `cobrar_proforma`, `pedido_desde_proforma`, `avanzar_trabajo`, `fijar_entrega`; permisos `puede_ver`, `puede_registrar`, `es_gerente`, `mi_rol`; dictado `contar_dictado`, `purgar_dictados` |
+| Funciones | `register_work_order`, `update_work_order`, `update_proforma`, `annul_proforma`, `update_debt`, `delete_debt_payment`, `cobrar_proforma`, `pedido_desde_proforma`, `avanzar_trabajo`, `fijar_entrega`, `guardar_producto`, `cliente_para`, `normalizar_nombre`; permisos `puede_ver`, `puede_registrar`, `es_gerente`, `mi_rol`; dictado `contar_dictado`, `purgar_dictados` |
 | Secuencias | `voucher_seq` (OP-000001), `proforma_seq` (PF-1001) |
 | Tareas | `purgar-dictados` (pg_cron, a diario a las 03:00 de Lima) |
 
@@ -223,6 +223,37 @@ hoy» (también en la campana), fecha editable y el historial de cada cambio
 - **Dictado**: «para el viernes», «para mañana», «para el 25», «lo recoge el
   lunes» rellenan la fecha de entrega. Solo si la frase dice que es la entrega:
   «entrega 20» son soles y «el saldo el lunes» es cuándo paga.
+
+### Clientes y catálogo
+
+**Clientes** (`0014`): el cliente dejó de ser un texto suelto. La base los crea
+y vincula sola: al guardar un pedido, una proforma o una deuda busca el nombre
+normalizado (sin tildes ni «señora», «cliente», «don») y, si no existe, lo
+crea. Funciona desde cualquier pantalla y desde el dictado, y los 1.700
+registros que ya había quedaron vinculados al aplicar la migración.
+
+- Pestaña **Clientes**: teléfono (con WhatsApp), DNI o RUC, cuántos pedidos,
+  saldo y último movimiento. Su ficha corrige los datos y enseña sus pedidos,
+  sus cuentas pendientes (con «Abonar») y sus proformas, más «Nuevo pedido».
+- Los proveedores están en la misma tabla, con su marca: una deuda por pagar
+  crea un proveedor.
+- Los nombres de los formularios se autocompletan, y elegir un cliente conocido
+  trae su teléfono.
+
+**Catálogo** (`0014`, `0015`): productos con **precio por unidad según la
+cantidad** («Volantes A5, por millar: desde 1, S/ 180; desde 5, S/ 150»).
+
+- Pestaña **Catálogo**: los productos con su escala y una calculadora rápida.
+  Solo el gerente los cambia (la base rechaza lo demás), y guardar reemplaza la
+  escala entera en una sola operación.
+- **Del catálogo** añade una línea al pedido o a la proforma con su precio.
+- El **dictado** lo usa: si la frase nombra un producto y su cantidad pero no
+  dice el precio, se ofrece el del catálogo como opción. Nunca pisa un precio
+  dicho; con dos lecturas («180 o 360»), se suma como una más.
+
+**Aprobación del diseño**: en Trabajos, «Enviar prueba» abre WhatsApp pidiendo
+el visto bueno, y pasar a producción desde diseño pregunta quién aprobó y cómo.
+Queda en el historial del trabajo.
 
 ### Pedidos, adelantos y saldos
 

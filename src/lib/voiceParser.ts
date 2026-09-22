@@ -262,13 +262,14 @@ function candidatosDeMonto(texto: string): Candidato[] {
  */
 export function cifrasDeLaFrase(
   texto: string,
-): Array<{ valor: number; descartada: boolean; peso: number; cantidad: boolean; palabraAntes: string }> {
+): Array<{ valor: number; descartada: boolean; peso: number; cantidad: boolean; palabraAntes: string; palabraUnidad: string }> {
   return candidatosDeMonto(texto.toLowerCase()).map((c) => ({
     valor: c.value,
     descartada: c.descartado,
     peso: c.peso,
     cantidad: c.unidad,
     palabraAntes: c.palabraAntes,
+    palabraUnidad: c.palabraUnidad,
   }))
 }
 

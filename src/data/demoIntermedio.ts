@@ -222,6 +222,7 @@ export function generarDemoIntermedio(opciones: OpcionesDemo = {}): DatosDemo {
         estado,
         entrega,
         estadoAt: cuando,
+        clienteId: null,
       })
 
       if (advance > 0) {
@@ -255,6 +256,7 @@ export function generarDemoIntermedio(opciones: OpcionesDemo = {}): DatosDemo {
           dueDate: null,
           createdAt: cuando,
           workOrderId: orderId,
+          clienteId: null,
         })
 
         // Parte de esos saldos se va cobrando en días posteriores.
@@ -330,6 +332,7 @@ export function generarDemoIntermedio(opciones: OpcionesDemo = {}): DatosDemo {
       dueDate: null,
       createdAt: momento(dia),
       workOrderId: null,
+      clienteId: null,
     })
   }
 
@@ -349,6 +352,7 @@ export function generarDemoIntermedio(opciones: OpcionesDemo = {}): DatosDemo {
       issuedAt: momento(dia),
       transactionId: null,
       workOrderId: null,
+      clienteId: null,
     })
   }
 

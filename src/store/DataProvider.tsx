@@ -28,6 +28,10 @@ import type {
   WorkOrderResult,
   EstadoTrabajo,
   PedidoDesdeProforma,
+  Cliente,
+  CambiosCliente,
+  Producto,
+  ProductoAGuardar,
 } from '@/types'
 
 export interface Stats {
@@ -48,6 +52,8 @@ interface DataContextValue {
   debts: Debt[]
   workOrders: WorkOrder[]
   closings: CashClosing[]
+  clientes: Cliente[]
+  productos: Producto[]
   stats: Stats
   loading: boolean
   error: string | null
@@ -63,8 +69,8 @@ interface DataContextValue {
   workOrderById: (id: string | null) => WorkOrder | null
   voidTransaction: (id: string) => Promise<void>
   removeTransaction: (id: string) => Promise<void>
-  /** Mueve un trabajo de estado (lo anota con quien lo hizo). */
-  avanzarTrabajo: (id: string, estado: EstadoTrabajo) => Promise<void>
+  /** Mueve un trabajo de estado (lo anota con quien lo hizo y, si la hay, la nota de aprobación). */
+  avanzarTrabajo: (id: string, estado: EstadoTrabajo, nota?: string) => Promise<void>
   fijarEntrega: (id: string, entrega: string | null) => Promise<void>
   /** La proforma aceptada pasa a pedido con adelanto o al crédito. */
   pedidoDesdeProforma: (id: string, datos: Omit<PedidoDesdeProforma, 'author'>) => Promise<WorkOrderResult>
@@ -80,6 +86,11 @@ interface DataContextValue {
   abonarDeuda: (debtId: string, amount: number, method: PaymentMethod) => Promise<void>
 
   registrarCierre: (countedCash: number, openingCash: number, notes: string) => Promise<CashClosing>
+
+  crearCliente: (datos: Omit<Cliente, 'id' | 'createdAt'>) => Promise<Cliente>
+  actualizarCliente: (id: string, cambios: CambiosCliente) => Promise<Cliente>
+  guardarProducto: (producto: ProductoAGuardar) => Promise<string>
+  borrarProducto: (id: string) => Promise<void>
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
@@ -136,24 +147,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [debts, setDebts] = useState<Debt[]>([])
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [closings, setClosings] = useState<CashClosing[]>([])
+  const [clientes, setClientes] = useState<Cliente[]>([])
+  const [productos, setProductos] = useState<Producto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setError(null)
     try {
-      const [tx, pf, dd, wo, cc] = await Promise.all([
+      const [tx, pf, dd, wo, cc, cl, pr] = await Promise.all([
         db.listTransactions(),
         db.listProformas(),
         db.listDebts(),
         db.listWorkOrders(),
         db.listClosings(),
+        // Clientes y catálogo no deben tumbar la carga del libro: con una base
+        // anterior a 0014, simplemente vienen vacíos.
+        db.listClientes().catch(() => [] as Cliente[]),
+        db.listProductos().catch(() => [] as Producto[]),
       ])
       setTransactions(tx)
       setProformas(pf)
       setDebts(dd)
       setWorkOrders(wo)
       setClosings(cc)
+      setClientes(cl)
+      setProductos(pr)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error desconocido'
       setError(
@@ -219,8 +238,43 @@ export function DataProvider({ children }: { children: ReactNode }) {
   )
 
   const avanzarTrabajo = useCallback(
-    async (id: string, estado: EstadoTrabajo) => {
-      await db.avanzarTrabajo(id, estado, APP_USER)
+    async (id: string, estado: EstadoTrabajo, nota = '') => {
+      await db.avanzarTrabajo(id, estado, APP_USER, nota)
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const crearCliente = useCallback(
+    async (datos: Omit<Cliente, 'id' | 'createdAt'>) => {
+      const c = await db.crearCliente(datos)
+      await refresh()
+      return c
+    },
+    [refresh],
+  )
+
+  const actualizarCliente = useCallback(
+    async (id: string, cambios: CambiosCliente) => {
+      const c = await db.actualizarCliente(id, cambios)
+      await refresh()
+      return c
+    },
+    [refresh],
+  )
+
+  const guardarProducto = useCallback(
+    async (producto: ProductoAGuardar) => {
+      const id = await db.guardarProducto(producto)
+      await refresh()
+      return id
+    },
+    [refresh],
+  )
+
+  const borrarProducto = useCallback(
+    async (id: string) => {
+      await db.borrarProducto(id)
       await refresh()
     },
     [refresh],
@@ -344,6 +398,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       debts,
       workOrders,
       closings,
+      clientes,
+      productos,
       stats,
       loading,
       error,
@@ -367,6 +423,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       borrarAbono,
       abonarDeuda,
       registrarCierre,
+      crearCliente,
+      actualizarCliente,
+      guardarProducto,
+      borrarProducto,
     }),
     [
       transactions,
@@ -374,6 +434,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       debts,
       workOrders,
       closings,
+      clientes,
+      productos,
       stats,
       loading,
       error,
@@ -396,6 +458,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       borrarAbono,
       abonarDeuda,
       registrarCierre,
+      crearCliente,
+      actualizarCliente,
+      guardarProducto,
+      borrarProducto,
     ],
   )
 

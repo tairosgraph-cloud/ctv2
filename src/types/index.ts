@@ -71,6 +71,8 @@ export interface Proforma {
   transactionId: string | null
   /** El pedido que salió de esta proforma, si se aceptó con adelanto o al crédito. */
   workOrderId: string | null
+  /** El cliente al que la vinculó la base (0014). */
+  clienteId: string | null
 }
 
 export type NewProforma = Pick<Proforma, 'client' | 'detail' | 'total' | 'validityDays'>
@@ -100,6 +102,7 @@ export interface Debt {
   createdAt: string
   /** Pedido del que nació esta cuenta, si vino de un adelanto parcial. */
   workOrderId: string | null
+  clienteId: string | null
 }
 
 export type NewDebt = Pick<Debt, 'kind' | 'party' | 'concept' | 'total'> & {
@@ -149,6 +152,8 @@ export interface WorkOrder {
   entrega: string | null
   /** Desde cuándo está en ese estado. */
   estadoAt: string
+  /** El cliente al que la vinculó la base (0014). */
+  clienteId: string | null
 }
 
 /** Un cambio de estado de un trabajo. */
@@ -158,7 +163,46 @@ export interface EventoTrabajo {
   estado: EstadoTrabajo
   createdAt: string
   author: string
+  /** Quién aprobó el diseño y cómo, al pasar a producción. */
+  nota: string
 }
+
+/** Cliente o proveedor (0014). La base lo crea sola al registrar. */
+export interface Cliente {
+  id: string
+  nombre: string
+  telefono: string
+  /** DNI o RUC, opcional. */
+  documento: string
+  notas: string
+  proveedor: boolean
+  createdAt: string
+}
+
+export type CambiosCliente = Partial<Pick<Cliente, 'nombre' | 'telefono' | 'documento' | 'notas' | 'proveedor'>>
+
+/** En qué se cuenta un producto: su precio es «por» esta unidad. */
+export const UNIDADES = ['unidad', 'ciento', 'millar', 'm2', 'metro', 'hoja', 'juego'] as const
+export type Unidad = (typeof UNIDADES)[number]
+
+export interface PrecioPorCantidad {
+  /** Desde cuántas unidades vale. */
+  desde: number
+  /** Precio por unidad a partir de esa cantidad. */
+  precio: number
+}
+
+export interface Producto {
+  id: string
+  nombre: string
+  unidad: Unidad
+  categoria: string
+  activo: boolean
+  /** Ordenados de menor a mayor cantidad. */
+  precios: PrecioPorCantidad[]
+}
+
+export type ProductoAGuardar = Omit<Producto, 'id'> & { id: string | null }
 
 export interface NewWorkOrderItem {
   description: string
@@ -240,6 +284,8 @@ export interface ConfirmacionDictado {
 export type TabKey =
   | 'registro'
   | 'trabajos'
+  | 'clientes'
+  | 'catalogo'
   | 'movimientos'
   | 'proformas'
   | 'deudas'
