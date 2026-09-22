@@ -91,6 +91,7 @@ export function DashboardLayout({
           onSearchChange={onSearchChange}
           onOpenMenu={() => onMenuOpenChange(true)}
           onGoToDebts={() => onSelect('deudas')}
+          onGoToTrabajos={() => onSelect('trabajos')}
         />
 
         <main className="flex-1 overflow-y-auto px-4 py-5 md:px-8 md:py-6">

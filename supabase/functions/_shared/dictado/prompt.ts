@@ -59,7 +59,8 @@ Llena solo el bloque de la intención: \`pedido\` para ingreso, egreso y pedido;
   - "parcial": dejó una parte («adelanto de 100», «dejó 50», «50 a cuenta», «pagó 80 y el resto a la entrega», «la mitad»). monto: esa parte; «la mitad» de 350 es 175.
   - "credito": no pagó nada ahora («fiado», «al crédito», «sin adelanto», «paga al recoger»). monto: 0.
   - Si un pedido no dice cómo se cobró: tipo null y "cobro" en faltantes.
-- notas: null, salvo un dato útil que no cabe en otro campo (la fecha de entrega).
+- entrega: "AAAA-MM-DD" si la frase dice para cuándo es el trabajo («para el viernes», «para mañana», «para el 25», «lo recoge el lunes»), calculada con la fecha de hoy que trae el mensaje; el día de la semana es el próximo, nunca hoy. Solo si es la entrega: «el saldo el lunes» es cuándo paga. Si no se dijo: null, y no es un faltante.
+- notas: null, salvo un dato útil que no cabe en otro campo.
 
 # Proforma (\`proforma\`)
 
@@ -94,13 +95,13 @@ ${ERRORES}.
 # Ejemplos
 
 Dictado: «para la señorita pamela 500 tarjetas lino 85 soles dejó 40 por yape»
-{"intent":"pedido","pedido":{"kind":"Ingreso","parte":"Pamela","telefono":null,"categoria":null,"pago":"Yape/Plin","items":[{"descripcion":"500 tarjetas lino","monto":85}],"adelanto":{"tipo":"parcial","monto":40},"notas":null},"proforma":null,"abono":null,"deuda":null,"consulta":null,"faltantes":[],"supuestos":[],"ambiguedades":[]}
+{"intent":"pedido","pedido":{"kind":"Ingreso","parte":"Pamela","telefono":null,"categoria":null,"pago":"Yape/Plin","items":[{"descripcion":"500 tarjetas lino","monto":85}],"adelanto":{"tipo":"parcial","monto":40},"notas":null,"entrega":null},"proforma":null,"abono":null,"deuda":null,"consulta":null,"faltantes":[],"supuestos":[],"ambiguedades":[]}
 
 Dictado: «vendí 4 sellos de madera a 22 cada uno al señor cárdenas en efectivo»
-{"intent":"ingreso","pedido":{"kind":"Ingreso","parte":"Cárdenas","telefono":null,"categoria":null,"pago":"Efectivo","items":[{"descripcion":"4 sellos de madera","monto":88}],"adelanto":{"tipo":"total","monto":null},"notas":null},"proforma":null,"abono":null,"deuda":null,"consulta":null,"faltantes":[],"supuestos":[],"ambiguedades":[]}
+{"intent":"ingreso","pedido":{"kind":"Ingreso","parte":"Cárdenas","telefono":null,"categoria":null,"pago":"Efectivo","items":[{"descripcion":"4 sellos de madera","monto":88}],"adelanto":{"tipo":"total","monto":null},"notas":null,"entrega":null},"proforma":null,"abono":null,"deuda":null,"consulta":null,"faltantes":[],"supuestos":[],"ambiguedades":[]}
 
 Dictado: «3 millares de dípticos a 150 para la cevichería el muelle»
-{"intent":"pedido","pedido":{"kind":"Ingreso","parte":"Cevichería El Muelle","telefono":null,"categoria":null,"pago":null,"items":[{"descripcion":"3 millares de dípticos","monto":null}],"adelanto":{"tipo":null,"monto":null},"notas":null},"proforma":null,"abono":null,"deuda":null,"consulta":null,"faltantes":["cobro","pago"],"supuestos":[],"ambiguedades":[{"campo":"items.0.monto","opciones":["150","450"]}]}
+{"intent":"pedido","pedido":{"kind":"Ingreso","parte":"Cevichería El Muelle","telefono":null,"categoria":null,"pago":null,"items":[{"descripcion":"3 millares de dípticos","monto":null}],"adelanto":{"tipo":null,"monto":null},"notas":null,"entrega":null},"proforma":null,"abono":null,"deuda":null,"consulta":null,"faltantes":["cobro","pago"],"supuestos":[],"ambiguedades":[{"campo":"items.0.monto","opciones":["150","450"]}]}
 
 Dictado: «doña rebeca abonó 120 de lo que debía por plín»
 {"intent":"abono","pedido":null,"proforma":null,"abono":{"parte":"Rebeca","monto":120,"pago":"Yape/Plin"},"deuda":null,"consulta":null,"faltantes":[],"supuestos":[],"ambiguedades":[]}
@@ -109,7 +110,7 @@ Dictado: «cotiza para el estudio jurídico paz 1000 hojas membretadas 190 váli
 {"intent":"proforma","pedido":null,"proforma":{"cliente":"Estudio Jurídico Paz","detalle":"1000 hojas membretadas","total":190,"vigenciaDias":30},"abono":null,"deuda":null,"consulta":null,"faltantes":[],"supuestos":[],"ambiguedades":[]}
 
 Dictado: «pagué la luz del local 230 soles»
-{"intent":"egreso","pedido":{"kind":"Egreso","parte":null,"telefono":null,"categoria":"Servicios Básicos","pago":null,"items":[{"descripcion":"luz del local","monto":230}],"adelanto":{"tipo":"total","monto":null},"notas":null},"proforma":null,"abono":null,"deuda":null,"consulta":null,"faltantes":["parte","pago"],"supuestos":[],"ambiguedades":[]}
+{"intent":"egreso","pedido":{"kind":"Egreso","parte":null,"telefono":null,"categoria":"Servicios Básicos","pago":null,"items":[{"descripcion":"luz del local","monto":230}],"adelanto":{"tipo":"total","monto":null},"notas":null,"entrega":null},"proforma":null,"abono":null,"deuda":null,"consulta":null,"faltantes":["parte","pago"],"supuestos":[],"ambiguedades":[]}
 
 Dictado: «le debo 275 soles a Vinilos Express por el vinil adhesivo»
 {"intent":"deuda","pedido":null,"proforma":null,"abono":null,"deuda":{"kind":"PAGAR","parte":"Vinilos Express","concepto":"vinil adhesivo","total":275,"vence":null},"consulta":null,"faltantes":[],"supuestos":[],"ambiguedades":[]}

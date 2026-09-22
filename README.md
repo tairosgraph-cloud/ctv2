@@ -17,13 +17,13 @@ actual (Supabase / local) se ve en la esquina inferior de la barra lateral.
 ## Estado: conectado a Supabase ✅
 
 El proyecto está enlazado con una base real y tiene aplicadas las migraciones
-`0001`–`0011` (la `0006` no existe: la sustituyó `0009`). Lo que hay creado:
+`0001`–`0013` (la `0006` no existe: la sustituyó `0009`). Lo que hay creado:
 
 | | |
 | --- | --- |
-| Tablas | `transactions`, `work_orders`, `work_order_items`, `proformas`, `debts`, `debt_payments`, `cash_closings`, `profiles`, `voice_extractions`, `uso_dictado` |
+| Tablas | `transactions`, `work_orders`, `work_order_items`, `work_order_events`, `proformas`, `debts`, `debt_payments`, `cash_closings`, `profiles`, `voice_extractions`, `uso_dictado` |
 | Vista | `debts_with_balance` (respeta RLS: `security_invoker`) |
-| Funciones | `register_work_order`, `update_work_order`, `update_proforma`, `annul_proforma`, `update_debt`, `delete_debt_payment`; permisos `puede_ver`, `puede_registrar`, `es_gerente`, `mi_rol`; dictado `contar_dictado`, `purgar_dictados` |
+| Funciones | `register_work_order`, `update_work_order`, `update_proforma`, `annul_proforma`, `update_debt`, `delete_debt_payment`, `cobrar_proforma`, `pedido_desde_proforma`, `avanzar_trabajo`, `fijar_entrega`; permisos `puede_ver`, `puede_registrar`, `es_gerente`, `mi_rol`; dictado `contar_dictado`, `purgar_dictados` |
 | Secuencias | `voucher_seq` (OP-000001), `proforma_seq` (PF-1001) |
 | Tareas | `purgar-dictados` (pg_cron, a diario a las 03:00 de Lima) |
 
@@ -199,6 +199,30 @@ supabase/
     ├── _shared/dictado/  Contrato, prompt, esquema y petición (Deno y Node)
     └── extraer-dictado/  La Edge Function del intérprete inteligente
 ```
+
+### Trabajos: en qué va cada pedido
+
+Cada pedido tiene además un **estado de producción** —Recibido → En diseño →
+Esperando aprobación → En producción → Listo → Entregado— y una **fecha de
+entrega** opcional (`0013`). La pestaña **Trabajos** es el tablero del taller:
+una columna por estado, lo atrasado primero, contadores de «atrasados» y «para
+hoy» (también en la campana), fecha editable y el historial de cada cambio
+(quién y cuándo).
+
+- Una venta al instante («Se lo lleva ya») nace entregada y no ocupa el tablero;
+  un encargo con adelanto o al crédito nace «Recibido».
+- El cajero mueve trabajos y cambia fechas (`avanzar_trabajo`, `fijar_entrega`),
+  pero no corrige el pedido: eso sigue siendo del gerente.
+- **Listo → Avisar**: abre WhatsApp con «tu pedido está listo» (y el saldo, si
+  queda). **Entregar** con saldo pendiente ofrece cobrarlo ahí mismo.
+- **Proforma → pedido**: «A pedido» registra la cotización aceptada con su
+  adelanto o al crédito, de una vez (`pedido_desde_proforma`). «Cobrar» sigue
+  para quien paga todo y se lo lleva.
+- **WhatsApp** también para recordar un saldo (Deudas) y enviar una proforma.
+  Son enlaces `wa.me` con el texto escrito: sin coste y sin cuenta de empresa.
+- **Dictado**: «para el viernes», «para mañana», «para el 25», «lo recoge el
+  lunes» rellenan la fecha de entrega. Solo si la frase dice que es la entrega:
+  «entrega 20» son soles y «el saldo el lunes» es cuándo paga.
 
 ### Pedidos, adelantos y saldos
 

@@ -19,6 +19,14 @@ export const TABS: TabDef[] = [
     subtitle: 'Registro directo de ingresos y egresos en tiempo real.',
   },
   {
+    key: 'trabajos',
+    label: 'Trabajos',
+    icon: 'fa-list-check',
+    group: 'Espacio Principal',
+    title: 'Trabajos en el taller',
+    subtitle: 'En qué va cada pedido, para cuándo es y a quién hay que avisar.',
+  },
+  {
     key: 'movimientos',
     label: 'Movimientos',
     icon: 'fa-arrow-right-arrow-left',

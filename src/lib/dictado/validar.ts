@@ -20,6 +20,7 @@ import {
   type Ruta,
 } from '../../../supabase/functions/_shared/dictado/tipos.ts'
 import { normalizarDictado } from '../../../supabase/functions/_shared/dictado/vocabulario.ts'
+import { fechaDeEntregaValida, hayFechaDeEntrega, hoyEnLima } from '../../../supabase/functions/_shared/dictado/fechas.ts'
 
 const iguales = (a: number, b: number) => Math.abs(a - b) < 0.005
 
@@ -83,7 +84,7 @@ export function respaldo(valor: number, textoNormalizado: string, clase: ClaseDe
 const esPositivo = (n: number | null | undefined): n is number =>
   typeof n === 'number' && Number.isFinite(n) && n > 0
 
-export function validarExtraccion(entrada: Extraccion, texto: string): Extraccion {
+export function validarExtraccion(entrada: Extraccion, texto: string, hoy: string = hoyEnLima()): Extraccion {
   const ex: Extraccion = structuredClone(entrada)
   const ruta: Ruta = rutaDe(ex.intent)
   const normal = normalizarDictado(texto)
@@ -128,8 +129,12 @@ export function validarExtraccion(entrada: Extraccion, texto: string): Extraccio
         items: [],
         adelanto: { tipo: null, monto: null },
         notas: null,
+        entrega: null,
       })
       if (p.kind !== 'Ingreso' && p.kind !== 'Egreso') p.kind = null
+      // Una fecha de entrega solo si la frase la dice, y entre hoy y un año: un
+      // compromiso que nadie hizo acabaría en el tablero del taller.
+      p.entrega = fechaDeEntregaValida(p.entrega, hoy) && hayFechaDeEntrega(normal) ? p.entrega : null
       // «ingreso» y «egreso» ya dicen el tipo; si el bloque lo contradice, no
       // hay forma de saber cuál de los dos se equivocó.
       const kindDeIntencion = ex.intent === 'ingreso' ? 'Ingreso' : ex.intent === 'egreso' ? 'Egreso' : null

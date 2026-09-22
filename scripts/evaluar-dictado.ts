@@ -142,7 +142,7 @@ interface Salida {
   fallo?: string
 }
 
-const conReglas = (frase: string) => validarExtraccion(desdeReglas(frase), frase)
+const conReglas = (frase: string) => validarExtraccion(desdeReglas(frase, hoy), frase, hoy)
 
 async function interpretar(frase: string, cliente: Anthropic | null): Promise<Salida> {
   const t0 = performance.now()
@@ -159,7 +159,7 @@ async function interpretar(frase: string, cliente: Anthropic | null): Promise<Sa
 
     const delModelo = leerRespuesta(respuesta)
     if (!delModelo) return { extraida: conReglas(frase), ms: tiempo, fallo: `respuesta ilegible (${respuesta.stop_reason})` }
-    const validada = validarExtraccion(delModelo, frase)
+    const validada = validarExtraccion(delModelo, frase, hoy)
     return { extraida: motor === 'llm' ? cruzarConReglas(validada, conReglas(frase)) : validada, ms: tiempo }
   } catch (error) {
     const tiempo = ms()

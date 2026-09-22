@@ -16,6 +16,9 @@ import type {
   WorkOrderResult,
   NuevoDictado,
   ConfirmacionDictado,
+  EstadoTrabajo,
+  EventoTrabajo,
+  PedidoDesdeProforma,
 } from '@/types'
 
 export interface ConvertResult {
@@ -84,6 +87,14 @@ export interface DataAdapter {
    * y recalcula el saldo. Rechaza dejar el total por debajo de lo ya cobrado.
    */
   updateWorkOrder(id: string, input: UpdateWorkOrder): Promise<WorkOrderResult>
+  /** Mueve un trabajo de estado y lo anota en su historial. */
+  avanzarTrabajo(id: string, estado: EstadoTrabajo, author: string): Promise<void>
+  /** Cambia (o quita, con null) la fecha de entrega. */
+  fijarEntrega(id: string, entrega: string | null): Promise<void>
+  /** Los cambios de estado de un trabajo, del más antiguo al más reciente. */
+  listEventosTrabajo(workOrderId: string): Promise<EventoTrabajo[]>
+  /** La proforma aceptada pasa a pedido, con su adelanto o al crédito, de una vez. */
+  pedidoDesdeProforma(proformaId: string, datos: PedidoDesdeProforma): Promise<WorkOrderResult>
 
   listClosings(): Promise<CashClosing[]>
   createClosing(input: NewClosing): Promise<CashClosing>

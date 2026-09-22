@@ -26,6 +26,8 @@ import type {
   Transaction,
   WorkOrder,
   WorkOrderResult,
+  EstadoTrabajo,
+  PedidoDesdeProforma,
 } from '@/types'
 
 export interface Stats {
@@ -61,6 +63,11 @@ interface DataContextValue {
   workOrderById: (id: string | null) => WorkOrder | null
   voidTransaction: (id: string) => Promise<void>
   removeTransaction: (id: string) => Promise<void>
+  /** Mueve un trabajo de estado (lo anota con quien lo hizo). */
+  avanzarTrabajo: (id: string, estado: EstadoTrabajo) => Promise<void>
+  fijarEntrega: (id: string, entrega: string | null) => Promise<void>
+  /** La proforma aceptada pasa a pedido con adelanto o al crédito. */
+  pedidoDesdeProforma: (id: string, datos: Omit<PedidoDesdeProforma, 'author'>) => Promise<WorkOrderResult>
 
   addProforma: (input: NewProforma) => Promise<Proforma>
   editProforma: (id: string, input: UpdateProforma) => Promise<Proforma>
@@ -211,6 +218,31 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [refresh],
   )
 
+  const avanzarTrabajo = useCallback(
+    async (id: string, estado: EstadoTrabajo) => {
+      await db.avanzarTrabajo(id, estado, APP_USER)
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const fijarEntrega = useCallback(
+    async (id: string, entrega: string | null) => {
+      await db.fijarEntrega(id, entrega)
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const pedidoDesdeProforma = useCallback(
+    async (id: string, datos: Omit<PedidoDesdeProforma, 'author'>) => {
+      const resultado = await db.pedidoDesdeProforma(id, { ...datos, author: APP_USER })
+      await refresh()
+      return resultado
+    },
+    [refresh],
+  )
+
   const addProforma = useCallback(
     async (input: NewProforma) => {
       const pf = await db.createProforma(input)
@@ -323,6 +355,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       workOrderById,
       voidTransaction,
       removeTransaction,
+      avanzarTrabajo,
+      fijarEntrega,
+      pedidoDesdeProforma,
       addProforma,
       editProforma,
       anularProforma,
@@ -349,6 +384,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       workOrderById,
       voidTransaction,
       removeTransaction,
+      avanzarTrabajo,
+      fijarEntrega,
+      pedidoDesdeProforma,
       addProforma,
       editProforma,
       anularProforma,

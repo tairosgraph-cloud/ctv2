@@ -4,13 +4,14 @@ import { EmptyRow } from '@/components/ui/EmptyRow'
 import { Pagination } from '@/components/ui/Pagination'
 import { usePagination } from '@/hooks/usePagination'
 import { money } from '@/lib/format'
+import { enlaceWhatsApp, mensaje } from '@/lib/whatsapp'
 import { useData } from '@/store/DataProvider'
 import type { Debt, DebtKind } from '@/types'
 import { AbonoModal } from './AbonoModal'
 import { NewDebtModal } from './NewDebtModal'
 
 export function DeudasView({ search }: { search: string }) {
-  const { debts, stats, loading } = useData()
+  const { debts, stats, loading, workOrderById } = useData()
   const [kindFilter, setKindFilter] = useState<'ALL' | DebtKind>('ALL')
   const [onlyPending, setOnlyPending] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -163,14 +164,30 @@ export function DeudasView({ search }: { search: string }) {
                       <td className="td pr-5">
                         <div className="flex items-center justify-center gap-1">
                           {d.balance > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => setPaying(d)}
-                              className="inline-flex items-center gap-1 rounded-lg bg-brand-800 dark:bg-brand-600 px-2.5 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-brand-900"
-                            >
-                              <i className="fa-solid fa-hand-holding-dollar" aria-hidden="true" />
-                              Abonar
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setPaying(d)}
+                                className="inline-flex items-center gap-1 rounded-lg bg-brand-800 dark:bg-brand-600 px-2.5 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-brand-900"
+                              >
+                                <i className="fa-solid fa-hand-holding-dollar" aria-hidden="true" />
+                                Abonar
+                              </button>
+                              {d.kind === 'COBRAR' && (
+                                // El teléfono sale del pedido, si lo tiene; si no,
+                                // WhatsApp deja elegir el chat.
+                                <a
+                                  href={enlaceWhatsApp(workOrderById(d.workOrderId)?.phone, mensaje.saldo(d.party, d.concept, d.balance))}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Recordar el saldo por WhatsApp"
+                                  aria-label={`Recordar a ${d.party} por WhatsApp`}
+                                  className="rounded p-1 text-emerald-600 transition-colors hover:text-emerald-700 dark:text-emerald-400"
+                                >
+                                  <i className="fa-brands fa-whatsapp text-sm" aria-hidden="true" />
+                                </a>
+                              )}
+                            </>
                           ) : (
                             <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
                               Liquidado

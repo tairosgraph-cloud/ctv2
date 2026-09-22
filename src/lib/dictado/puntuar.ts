@@ -31,6 +31,7 @@ export interface Esperado {
     categoria: string | null
     pago: string | null
     items: Array<Parcial<{ descripcion: string; monto: number | null }>>
+    entrega: string | null
     adelanto: Parcial<{ tipo: 'total' | 'parcial' | 'credito' | null; monto: number | null }>
   }>
   proforma?: Parcial<{ cliente: string | null; detalle: string | null; total: number | null; vigenciaDias: number | null }>
@@ -169,6 +170,7 @@ export function puntuarFrase(entrada: EntradaCorpus, obtenida: Extraccion, ms = 
     if (tiene(ep, 'telefono')) mirar('telefono', ep.telefono, op?.telefono, telefono)
     if (tiene(ep, 'categoria')) mirar('categoria', ep.categoria, op?.categoria, exacto)
     if (tiene(ep, 'pago')) mirar('pago', ep.pago, op?.pago, exacto)
+    if (tiene(ep, 'entrega')) mirar('entrega', ep.entrega, op?.entrega ?? null, exacto)
     if (ep.items) {
       const obtenidos = op?.items ?? []
       const n = ep.items.length

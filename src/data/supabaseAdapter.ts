@@ -18,6 +18,9 @@ import type {
   WorkOrderResult,
   NuevoDictado,
   ConfirmacionDictado,
+  EstadoTrabajo,
+  EventoTrabajo,
+  PedidoDesdeProforma,
 } from '@/types'
 import type { ConvertResult, DataAdapter, NewClosing, PaymentResult } from './adapter'
 
@@ -109,6 +112,7 @@ type ProformaRow = {
   status: Proforma['status']
   issued_at: string
   transaction_id: string | null
+  work_order_id: string | null
 }
 
 const toProforma = (r: ProformaRow): Proforma => ({
@@ -121,6 +125,7 @@ const toProforma = (r: ProformaRow): Proforma => ({
   status: r.status,
   issuedAt: r.issued_at,
   transactionId: r.transaction_id,
+  workOrderId: r.work_order_id ?? null,
 })
 
 type DebtRow = {
@@ -181,6 +186,9 @@ type WorkOrderRow = {
   author: string
   created_at: string
   updated_at: string | null
+  estado: EstadoTrabajo | null
+  entrega: string | null
+  estado_at: string | null
   work_order_items: Array<{
     id: string
     position: number
@@ -201,6 +209,10 @@ const toWorkOrder = (r: WorkOrderRow): WorkOrder => ({
   author: r.author,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
+  // Con una base anterior a 0013 no hay estado: lo que existía, entregado.
+  estado: r.estado ?? 'entregado',
+  entrega: r.entrega ?? null,
+  estadoAt: r.estado_at ?? r.created_at,
   items: (r.work_order_items ?? [])
     .map<WorkOrderItem>((i) => ({
       id: i.id,
@@ -553,9 +565,56 @@ export const supabaseAdapter: DataAdapter = {
         p_author: input.author,
         p_items: input.items,
         p_source: input.source ?? 'manual',
+        p_estado: input.estado ?? 'entregado',
+        p_entrega: input.entrega ?? null,
       }),
     ) as { work_order_id: string; transaction_id: string | null; debt_id: string | null }
 
+    return readWorkOrderResult(ids)
+  },
+
+  async avanzarTrabajo(id: string, estado: EstadoTrabajo, author: string) {
+    const { error } = await client().rpc('avanzar_trabajo', { p_id: id, p_estado: estado, p_author: author })
+    if (error) throw new Error(error.message)
+  },
+
+  async fijarEntrega(id: string, entrega: string | null) {
+    const { error } = await client().rpc('fijar_entrega', { p_id: id, p_entrega: entrega })
+    if (error) throw new Error(error.message)
+  },
+
+  async listEventosTrabajo(workOrderId: string) {
+    const rows = unwrap(
+      await client()
+        .from('work_order_events')
+        .select('id, work_order_id, estado, created_at, author')
+        .eq('work_order_id', workOrderId)
+        .order('created_at', { ascending: true })
+        .returns<Array<{ id: string; work_order_id: string; estado: EstadoTrabajo; created_at: string; author: string }>>(),
+    )
+    return rows.map<EventoTrabajo>((r) => ({
+      id: r.id,
+      workOrderId: r.work_order_id,
+      estado: r.estado,
+      createdAt: r.created_at,
+      author: r.author,
+    }))
+  },
+
+  async pedidoDesdeProforma(proformaId: string, datos: PedidoDesdeProforma) {
+    // Una sola transacción (0013): el pedido, su adelanto, su saldo y la
+    // proforma marcada, o nada.
+    const ids = unwrap(
+      await client().rpc('pedido_desde_proforma', {
+        p_proforma: proformaId,
+        p_payment: datos.payment,
+        p_advance: datos.advance,
+        p_author: datos.author,
+        p_phone: datos.phone,
+        p_estado: datos.estado,
+        p_entrega: datos.entrega,
+      }),
+    ) as { work_order_id: string; transaction_id: string | null; debt_id: string | null }
     return readWorkOrderResult(ids)
   },
 

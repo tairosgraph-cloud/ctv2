@@ -1,4 +1,5 @@
 import type {
+  EstadoTrabajo,
   CashClosing,
   Debt,
   DebtPayment,
@@ -29,6 +30,15 @@ import type {
  */
 
 const AUTOR = 'María López (Admin)'
+
+/** Las etapas de un encargo que sigue en el taller. */
+const EN_TALLER: readonly EstadoTrabajo[] = ['recibido', 'diseno', 'aprobacion', 'produccion', 'listo']
+
+/** AAAA-MM-DD en la hora local, como el campo de fecha. */
+const diaISO = (ms: number) => {
+  const d = new Date(ms)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 /** PRNG con semilla (mulberry32): reproducible entre ejecuciones y máquinas. */
 function crearAzar(semilla: number) {
@@ -188,6 +198,14 @@ export function generarDemoIntermedio(opciones: OpcionesDemo = {}): DatosDemo {
       const resumen = items.map((it) => it.description).join(' + ')
       const orderId = `demo-wo-${String(workOrders.length + 1).padStart(3, '0')}`
 
+      // Los encargos de los últimos diez días siguen en el taller, cada uno en
+      // una etapa. Sale de la posición del pedido y no del azar: otra tirada
+      // cambiaría toda la demo que viene detrás (y las pruebas que la usan).
+      const n = workOrders.length
+      const enTaller = advance < total && dia >= totalDias - 10
+      const estado = enTaller ? EN_TALLER[n % EN_TALLER.length] : 'entregado'
+      const entrega = enTaller ? diaISO(inicio + (dia + 2 + (n % 6)) * DIA) : null
+
       workOrders.push({
         id: orderId,
         kind: 'Ingreso',
@@ -201,6 +219,9 @@ export function generarDemoIntermedio(opciones: OpcionesDemo = {}): DatosDemo {
         createdAt: cuando,
         updatedAt: null,
         items,
+        estado,
+        entrega,
+        estadoAt: cuando,
       })
 
       if (advance > 0) {
@@ -327,6 +348,7 @@ export function generarDemoIntermedio(opciones: OpcionesDemo = {}): DatosDemo {
       status: dado < 0.5 ? 'Vigente' : dado < 0.85 ? 'Convertida' : 'Anulada',
       issuedAt: momento(dia),
       transactionId: null,
+      workOrderId: null,
     })
   }
 

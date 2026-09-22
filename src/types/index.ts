@@ -6,6 +6,18 @@ export type ProformaStatus = 'Vigente' | 'Convertida' | 'Anulada'
 export type DebtKind = 'COBRAR' | 'PAGAR'
 export type DebtStatus = 'Pendiente' | 'Parcial' | 'Cancelado'
 
+/** En qué va un trabajo (0013). El orden es el del taller. */
+export const ESTADOS_TRABAJO = ['recibido', 'diseno', 'aprobacion', 'produccion', 'listo', 'entregado'] as const
+export type EstadoTrabajo = (typeof ESTADOS_TRABAJO)[number]
+export const NOMBRE_ESTADO: Record<EstadoTrabajo, string> = {
+  recibido: 'Recibido',
+  diseno: 'En diseño',
+  aprobacion: 'Esperando aprobación',
+  produccion: 'En producción',
+  listo: 'Listo',
+  entregado: 'Entregado',
+}
+
 export const PAYMENT_METHODS: PaymentMethod[] = [
   'Efectivo',
   'Yape/Plin',
@@ -57,6 +69,8 @@ export interface Proforma {
   status: ProformaStatus
   issuedAt: string
   transactionId: string | null
+  /** El pedido que salió de esta proforma, si se aceptó con adelanto o al crédito. */
+  workOrderId: string | null
 }
 
 export type NewProforma = Pick<Proforma, 'client' | 'detail' | 'total' | 'validityDays'>
@@ -129,6 +143,21 @@ export interface WorkOrder {
   /** Sólo si el pedido fue corregido después de registrarse. */
   updatedAt: string | null
   items: WorkOrderItem[]
+  /** En qué va el trabajo; una venta al instante nace 'entregado'. */
+  estado: EstadoTrabajo
+  /** Fecha comprometida (AAAA-MM-DD), o null si no se dio. */
+  entrega: string | null
+  /** Desde cuándo está en ese estado. */
+  estadoAt: string
+}
+
+/** Un cambio de estado de un trabajo. */
+export interface EventoTrabajo {
+  id: string
+  workOrderId: string
+  estado: EstadoTrabajo
+  createdAt: string
+  author: string
 }
 
 export interface NewWorkOrderItem {
@@ -148,13 +177,26 @@ export interface NewWorkOrder {
   items: NewWorkOrderItem[]
   /** Origen del asiento del adelanto. Sin indicar, 'manual'. */
   source?: TxSource
+  /** Sin indicar, 'entregado' (venta al instante). */
+  estado?: EstadoTrabajo
+  entrega?: string | null
+}
+
+/** Lo que falta para pasar una proforma aceptada a pedido. */
+export interface PedidoDesdeProforma {
+  payment: PaymentMethod
+  advance: number
+  author: string
+  phone: string
+  estado: EstadoTrabajo
+  entrega: string | null
 }
 
 /**
  * Corrección de un pedido ya registrado. El tipo (Ingreso/Egreso) no cambia, y
  * el origen tampoco: corregir lo dictado no lo convierte en tecleado.
  */
-export type UpdateWorkOrder = Omit<NewWorkOrder, 'kind' | 'author' | 'source'>
+export type UpdateWorkOrder = Omit<NewWorkOrder, 'kind' | 'author' | 'source' | 'estado' | 'entrega'>
 
 export interface WorkOrderResult {
   workOrder: WorkOrder
@@ -197,6 +239,7 @@ export interface ConfirmacionDictado {
 
 export type TabKey =
   | 'registro'
+  | 'trabajos'
   | 'movimientos'
   | 'proformas'
   | 'deudas'

@@ -41,6 +41,7 @@ const PEDIDO = objeto({
     monto: oNulo(numero),
   }),
   notas: oNulo(texto),
+  entrega: oNulo({ type: 'string', format: 'date' }),
 })
 
 const PROFORMA = objeto({

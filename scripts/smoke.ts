@@ -22,6 +22,9 @@ import { construirPeticion, leerRespuesta, tieneForma } from '../supabase/functi
 import { ERRORES_FRECUENTES, normalizarDictado } from '../supabase/functions/_shared/dictado/vocabulario.ts'
 import { PROMPT_SISTEMA } from '../supabase/functions/_shared/dictado/prompt.ts'
 import { puerta } from '@/lib/dictado/puerta'
+import { fechaDeEntrega, fechaDeEntregaValida } from '../supabase/functions/_shared/dictado/fechas.ts'
+import { armarTablero, plazoDe, siguienteEstado, textoPlazo } from '@/lib/trabajos'
+import { enlaceWhatsApp, mensaje, numeroPeruano } from '@/lib/whatsapp'
 import type { Cobro, Extraccion } from '../supabase/functions/_shared/dictado/tipos.ts'
 
 let failures = 0
@@ -203,7 +206,7 @@ async function main() {
   })
   const pedidoDictado = (monto: number | null, adelanto: Cobro) => ({
     kind: 'Ingreso' as const, parte: 'Rosa', telefono: null, categoria: 'Ventas' as const, pago: 'Yape/Plin' as const,
-    items: [{ descripcion: 'volantes', monto }], adelanto, notas: null,
+    items: [{ descripcion: 'volantes', monto }], adelanto, notas: null, entrega: null as string | null,
   })
   const guardada = (frase: string, ex: Extraccion) => validarExtraccion(ex, frase)
   check('validar: una cantidad no se acepta como precio',
@@ -585,7 +588,8 @@ async function main() {
   const wo = (over: Partial<WorkOrder>): WorkOrder => ({
     id: 'w', kind: 'Ingreso', party: 'X', phone: '', category: 'Ventas', total: 450, advance: 0,
     notes: '', author: 'T', createdAt: '2026-08-22T09:00:00.000Z', updatedAt: null,
-    items: [{ id: 'i1', position: 1, description: 'Afiches escolares', amount: 450 }], ...over,
+    items: [{ id: 'i1', position: 1, description: 'Afiches escolares', amount: 450 }],
+    estado: 'entregado', entrega: null, estadoAt: '2026-08-22T09:00:00.000Z', ...over,
   })
   const dbt = (over: Partial<Debt>): Debt => ({
     id: 'd', kind: 'COBRAR', party: 'X', concept: 'c', total: 450, paid: 0, balance: 450,
@@ -1082,12 +1086,109 @@ async function main() {
   check('aviso: al anochecer, la que vence hoy no está vencida', venceHoy.porCobrar[0].diasVencida, 0)
   check('aviso: y por tanto no alarma', venceHoy.porCobrar[0].urgencia, 'reciente')
 
+  // --- trabajos: la fecha de entrega dictada ---------------------------------
+  // Hoy es martes 22 de septiembre de 2026.
+  const martes = '2026-09-22'
+  for (const [frase, esperado] of [
+    ['mil volantes para Rosa para el viernes', '2026-09-25'],
+    ['lo necesita para mañana', '2026-09-23'],
+    ['para pasado mañana sin falta', '2026-09-24'],
+    ['es para hoy', '2026-09-22'],
+    ['para el martes', '2026-09-29'],
+    ['lo recoge el lunes', '2026-09-28'],
+    ['para el 25', '2026-09-25'],
+    ['para el 5', '2026-10-05'],
+    ['entrega el 5 de octubre', '2026-10-05'],
+    ['para el 10 de enero', '2027-01-10'],
+    ['entrega dentro de 3 días', '2026-09-25'],
+    ['para el 31 de septiembre', null],
+    ['entrega 20 soles', null],
+    ['dejó 30 y el saldo el lunes', null],
+    ['para el colegio San Martín', null],
+    ['mañana te pago', null],
+  ] as const) {
+    check(`entrega: «${frase}»`, fechaDeEntrega(frase, martes), esperado)
+  }
+  check('entrega: una fecha pasada no vale', fechaDeEntregaValida('2026-09-21', martes), false)
+  check('entrega: dentro del año sí', fechaDeEntregaValida('2026-12-24', martes), true)
+  check('entrega: un texto cualquiera no', fechaDeEntregaValida('mañana', martes), false)
+  check('entrega: las reglas la leen', desdeReglas('mil volantes para la señora Rosa por 240 dejó 100 para el viernes', martes).pedido?.entrega, '2026-09-25')
+  const conFecha = extraccion({ pedido: { ...pedidoDictado(240, { tipo: 'total', monto: 240 }), entrega: '2026-09-25' } })
+  check('entrega: la del modelo sin decirla en la frase no pasa',
+    validarExtraccion(conFecha, 'volantes por 240 soles para Rosa en yape', martes).pedido?.entrega, null)
+  check('entrega: la del modelo dicha en la frase sí',
+    validarExtraccion(conFecha, 'volantes por 240 soles para Rosa en yape, para el viernes', martes).pedido?.entrega, '2026-09-25')
+  check('entrega: el formulario la trae marcada',
+    [formularioDePedido(conFecha, [])?.entrega, formularioDePedido(conFecha, [])?.marcas.includes('entrega')], ['2026-09-25', true])
+
+  // --- trabajos: el tablero --------------------------------------------------
+  const lunesNoche = new Date(2026, 8, 21, 20)
+  check('plazo: ayer es atrasado', plazoDe('2026-09-20', lunesNoche), { tipo: 'atrasado', dias: 1 })
+  check('plazo: hoy', textoPlazo(plazoDe('2026-09-21', lunesNoche)), 'Para hoy')
+  check('plazo: mañana', textoPlazo(plazoDe('2026-09-22', lunesNoche)), 'Para mañana')
+  check('plazo: sin fecha', textoPlazo(plazoDe(null, lunesNoche)), 'Sin fecha')
+  check('estado: del diseño a esperar la aprobación', siguienteEstado('diseno'), 'aprobacion')
+  check('estado: lo entregado no sigue', siguienteEstado('entregado'), null)
+  const t = (id: string, estado: WorkOrder['estado'], entrega: string | null, over: Partial<WorkOrder> = {}) =>
+    wo({ id, estado, entrega, estadoAt: '2026-09-21T10:00:00.000Z', ...over })
+  const tablero = armarTablero(
+    [t('a', 'recibido', '2026-09-25'), t('b', 'recibido', '2026-09-19'), t('c', 'recibido', null), t('d', 'listo', '2026-09-21'),
+      t('e', 'entregado', null, { createdAt: '2026-09-20T09:00:00.000Z', estadoAt: '2026-09-21T15:00:00.000Z' }),
+      t('f', 'entregado', null, { createdAt: '2026-09-21T09:00:00.000Z', estadoAt: '2026-09-21T09:00:00.000Z' })],
+    [dbt({ id: 'deuda-a', workOrderId: 'a', balance: 90 })],
+    lunesNoche,
+  )
+  check('tablero: lo atrasado primero, lo sin fecha al final', tablero.columnas.recibido.map((x) => x.pedido.id), ['b', 'a', 'c'])
+  check('tablero: cuenta atrasados y para hoy', [tablero.atrasados, tablero.paraHoy], [1, 1])
+  check('tablero: el saldo sale de su cuenta', tablero.columnas.recibido.find((x) => x.pedido.id === 'a')?.saldo, 90)
+  check('tablero: la venta al instante no cuenta como entregada después', tablero.entregadosRecientes.map((x) => x.pedido.id), ['e'])
+
+  // --- WhatsApp -----------------------------------------------------------
+  check('whatsapp: celular con espacios', numeroPeruano('987 654 321'), '51987654321')
+  check('whatsapp: con +51', numeroPeruano('+51 987-654-321'), '51987654321')
+  check('whatsapp: un fijo no es WhatsApp', numeroPeruano('01 456 7890'), null)
+  check('whatsapp: sin número deja elegir el chat', enlaceWhatsApp('', 'hola').startsWith('https://wa.me/?text='), true)
+  check('whatsapp: el texto va codificado', enlaceWhatsApp('987654321', 'listo & 50%'), 'https://wa.me/51987654321?text=listo%20%26%2050%25')
+  const listo = mensaje.listo(wo({ party: 'Rosa', items: [{ id: 'i', position: 1, description: 'mil volantes', amount: 240 }] }), 140)
+  check('whatsapp: «listo» con el saldo', [listo.includes('Rosa'), listo.includes('mil volantes'), listo.includes('140.00')], [true, true, true])
+  check('whatsapp: «listo» sin saldo no lo menciona', mensaje.listo(wo({}), 0).includes('saldo'), false)
+
+  // --- trabajos: el flujo en el adaptador local -----------------------------
+  const encargo = await localAdapter.registerWorkOrder({
+    kind: 'Ingreso', party: 'Taller Prueba', phone: '987654321', category: 'Ventas', payment: 'Efectivo',
+    advance: 50, notes: '', author: 'T', items: [{ description: 'mil volantes', amount: 240 }],
+    estado: 'recibido', entrega: '2026-09-30',
+  })
+  check('local: el encargo nace recibido y con fecha', [encargo.workOrder.estado, encargo.workOrder.entrega], ['recibido', '2026-09-30'])
+  const ventaAlInstante = await localAdapter.registerWorkOrder({
+    kind: 'Ingreso', party: 'Mostrador', phone: '', category: 'Ventas', payment: 'Efectivo',
+    advance: 5, notes: '', author: 'T', items: [{ description: 'copias', amount: 5 }],
+  })
+  check('local: la venta de siempre nace entregada', ventaAlInstante.workOrder.estado, 'entregado')
+  await localAdapter.avanzarTrabajo(encargo.workOrder.id, 'listo', 'T')
+  await localAdapter.fijarEntrega(encargo.workOrder.id, '2026-10-01')
+  const movido = (await localAdapter.listWorkOrders()).find((w) => w.id === encargo.workOrder.id)
+  check('local: avanza y cambia de fecha', [movido?.estado, movido?.entrega], ['listo', '2026-10-01'])
+  check('local: con su historial', (await localAdapter.listEventosTrabajo(encargo.workOrder.id)).map((e) => e.estado), ['recibido', 'listo'])
+  const pfAceptada = await localAdapter.createProforma({ client: 'Cliente Proforma', detail: 'agendas', total: 500, validityDays: 15 })
+  const desdePf = await localAdapter.pedidoDesdeProforma(pfAceptada.id, {
+    payment: 'Yape/Plin', advance: 200, author: 'T', phone: '', estado: 'recibido', entrega: null,
+  })
+  check('local: proforma aceptada pasa a pedido con adelanto y saldo',
+    [desdePf.workOrder.total, desdePf.transaction?.amount, desdePf.debt?.balance, desdePf.workOrder.estado], [500, 200, 300, 'recibido'])
+  const pfDespues = (await localAdapter.listProformas()).find((p) => p.id === pfAceptada.id)
+  check('local: la proforma queda convertida y enlazada', [pfDespues?.status, pfDespues?.workOrderId], ['Convertida', desdePf.workOrder.id])
+  let dosVeces = ''
+  await localAdapter.pedidoDesdeProforma(pfAceptada.id, { payment: 'Efectivo', advance: 0, author: 'T', phone: '', estado: 'recibido', entrega: null })
+    .catch((e: Error) => { dosVeces = e.message })
+  check('local: no se usa dos veces', /ya se usó/.test(dosVeces), true)
+
   // --- caducidad de cotizaciones ---------------------------------------------
   // El estado 'Vigente' no caduca solo: sin esto, una proforma muerta seguía
   // contando como dinero en juego en la tarjeta de Registro y en la barra lateral.
   const proforma = (over: Partial<Proforma>): Proforma => ({
     id: 'p', code: 'PRO-001', client: 'Cliente', detail: 'd', total: 100,
-    validityDays: 15, status: 'Vigente', issuedAt: '2026-09-01', transactionId: null, ...over,
+    validityDays: 15, status: 'Vigente', issuedAt: '2026-09-01', transactionId: null, workOrderId: null, ...over,
   })
 
   check('proformas: emitida hoy con 15 días le quedan 15', diasParaCaducar('2026-09-17', 15, noche20), 15)

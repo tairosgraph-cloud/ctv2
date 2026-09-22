@@ -13,6 +13,9 @@ import type {
   Transaction,
   WorkOrder,
   WorkOrderResult,
+  EstadoTrabajo,
+  EventoTrabajo,
+  PedidoDesdeProforma,
 } from '@/types'
 import type { ConvertResult, DataAdapter, NewClosing, PaymentResult } from './adapter'
 import { generarDemoIntermedio } from './demoIntermedio'
@@ -37,6 +40,8 @@ interface Store {
   closings: CashClosing[]
   voucherSeq: number
   proformaSeq: number
+  /** Historial de estados de los trabajos (0013). */
+  eventos: EventoTrabajo[]
 }
 
 function seeded(): Store {
@@ -53,6 +58,25 @@ function seeded(): Store {
     closings: demo.closings,
     voucherSeq: demo.voucherSeq,
     proformaSeq: demo.proformaSeq,
+    eventos: [],
+  }
+}
+
+/**
+ * Lo guardado por una versión anterior no trae los campos nuevos: un pedido de
+ * antes queda entregado, como hizo 0013 con la base.
+ */
+function alDia(store: Store): Store {
+  return {
+    ...store,
+    eventos: store.eventos ?? [],
+    workOrders: store.workOrders.map((w) => ({
+      ...w,
+      estado: w.estado ?? 'entregado',
+      entrega: w.entrega ?? null,
+      estadoAt: w.estadoAt ?? w.createdAt,
+    })),
+    proformas: store.proformas.map((p) => ({ ...p, workOrderId: p.workOrderId ?? null })),
   }
 }
 
@@ -64,7 +88,7 @@ function read(): Store {
       write(fresh)
       return fresh
     }
-    return { ...seeded(), ...(JSON.parse(raw) as Partial<Store>) } as Store
+    return alDia({ ...seeded(), ...(JSON.parse(raw) as Partial<Store>) } as Store)
   } catch {
     return seeded()
   }
@@ -164,6 +188,7 @@ export const localAdapter: DataAdapter = {
         validityDays: input.validityDays,
         status: 'Vigente',
         issuedAt: new Date().toISOString(),
+        workOrderId: null,
         transactionId: null,
       }
       store.proformas.unshift(pf)
@@ -359,6 +384,9 @@ export const localAdapter: DataAdapter = {
 
     const summary = input.items.map((i) => i.description).join(' + ')
     const orderId = uid()
+    // Una sola hora para crear y para el estado inicial, como now() en Postgres:
+    // así una venta al instante no parece «entregada después».
+    const ahora = new Date().toISOString()
 
     const workOrder: WorkOrder = {
       id: orderId,
@@ -370,7 +398,7 @@ export const localAdapter: DataAdapter = {
       advance: input.advance,
       notes: input.notes,
       author: input.author,
-      createdAt: new Date().toISOString(),
+      createdAt: ahora,
       updatedAt: null,
       items: input.items.map((i, index) => ({
         id: uid(),
@@ -378,10 +406,20 @@ export const localAdapter: DataAdapter = {
         description: i.description,
         amount: i.amount,
       })),
+      estado: input.estado ?? 'entregado',
+      entrega: input.entrega ?? null,
+      estadoAt: ahora,
     }
 
     mutate((store) => {
       store.workOrders.unshift(workOrder)
+      store.eventos.push({
+        id: uid(),
+        workOrderId: orderId,
+        estado: workOrder.estado,
+        createdAt: workOrder.estadoAt,
+        author: input.author,
+      })
     })
 
     // Asiento: solo si de verdad se movio dinero.
@@ -423,6 +461,59 @@ export const localAdapter: DataAdapter = {
         : null
 
     return { workOrder, transaction, debt }
+  },
+
+  async avanzarTrabajo(id: string, estado: EstadoTrabajo, author: string) {
+    mutate((store) => {
+      const w = store.workOrders.find((x) => x.id === id)
+      if (!w) throw new Error('El pedido no existe')
+      w.estado = estado
+      w.estadoAt = new Date().toISOString()
+      store.eventos.push({ id: uid(), workOrderId: id, estado, createdAt: w.estadoAt, author })
+    })
+  },
+
+  async fijarEntrega(id: string, entrega: string | null) {
+    mutate((store) => {
+      const w = store.workOrders.find((x) => x.id === id)
+      if (!w) throw new Error('El pedido no existe')
+      w.entrega = entrega
+    })
+  },
+
+  async listEventosTrabajo(workOrderId: string) {
+    return read()
+      .eventos.filter((e) => e.workOrderId === workOrderId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  },
+
+  async pedidoDesdeProforma(proformaId: string, datos: PedidoDesdeProforma) {
+    const pf = read().proformas.find((p) => p.id === proformaId)
+    if (!pf) throw new Error('La proforma no existe')
+    if (pf.status === 'Convertida') throw new Error(`La proforma ${pf.code} ya se usó`)
+    if (pf.status !== 'Vigente') throw new Error(`La proforma ${pf.code} está anulada`)
+
+    const resultado = await localAdapter.registerWorkOrder({
+      kind: 'Ingreso',
+      party: pf.client,
+      phone: datos.phone,
+      category: 'Ventas',
+      payment: datos.payment,
+      advance: datos.advance,
+      notes: `Desde la proforma ${pf.code}`,
+      author: datos.author,
+      items: [{ description: pf.detail, amount: pf.total }],
+      source: 'proforma',
+      estado: datos.estado,
+      entrega: datos.entrega,
+    })
+    mutate((store) => {
+      const target = store.proformas.find((p) => p.id === proformaId)!
+      target.status = 'Convertida'
+      target.workOrderId = resultado.workOrder.id
+      target.transactionId = resultado.transaction?.id ?? null
+    })
+    return resultado
   },
 
   async updateWorkOrder(id: string, input: UpdateWorkOrder): Promise<WorkOrderResult> {

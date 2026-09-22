@@ -10,7 +10,9 @@ import { expiryDate, fileStamp, money } from '@/lib/format'
 import { estaCaducada } from '@/lib/proformas'
 import { useData } from '@/store/DataProvider'
 import type { Proforma } from '@/types'
+import { enlaceWhatsApp, mensaje } from '@/lib/whatsapp'
 import { CobrarProformaModal } from './CobrarProformaModal'
+import { PedidoDesdeProformaModal } from './PedidoDesdeProformaModal'
 import { NewProformaModal } from './NewProformaModal'
 
 export function ProformasView({ search }: { search: string }) {
@@ -20,6 +22,7 @@ export function ProformasView({ search }: { search: string }) {
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<Proforma | null>(null)
   const [charging, setCharging] = useState<Proforma | null>(null)
+  const [aPedido, setAPedido] = useState<Proforma | null>(null)
 
   const query = (search || localSearch).toLowerCase().trim()
 
@@ -193,6 +196,25 @@ export function ProformasView({ search }: { search: string }) {
                             </button>
                             <button
                               type="button"
+                              onClick={() => setAPedido(p)}
+                              title="El cliente la aceptó: pasarla a pedido con adelanto o al crédito"
+                              className="inline-flex items-center gap-1 rounded-lg bg-brand-50 dark:bg-brand-500/10 px-2.5 py-1.5 text-[11px] font-bold text-brand-800 dark:text-brand-300 transition-colors hover:bg-brand-100 dark:hover:bg-brand-500/20"
+                            >
+                              <i className="fa-solid fa-file-circle-check" aria-hidden="true" />
+                              A pedido
+                            </button>
+                            <a
+                              href={enlaceWhatsApp(null, mensaje.proforma(p))}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Enviar la cotización por WhatsApp"
+                              aria-label={`Enviar ${p.code} por WhatsApp`}
+                              className="rounded p-1 text-emerald-600 transition-colors hover:text-emerald-700 dark:text-emerald-400"
+                            >
+                              <i className="fa-brands fa-whatsapp text-sm" aria-hidden="true" />
+                            </a>
+                            <button
+                              type="button"
                               onClick={() => setEditing(p)}
                               title="Corregir la cotización"
                               aria-label={`Editar proforma ${p.code}`}
@@ -242,6 +264,7 @@ export function ProformasView({ search }: { search: string }) {
         onClose={() => setEditing(null)}
       />
       <CobrarProformaModal proforma={charging} onClose={() => setCharging(null)} />
+      {aPedido && <PedidoDesdeProformaModal key={aPedido.id} proforma={aPedido} onClose={() => setAPedido(null)} />}
     </div>
   )
 }

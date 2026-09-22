@@ -19,6 +19,7 @@
 import Anthropic from 'npm:@anthropic-ai/sdk@0.127.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.112.3'
 import { construirPeticion, leerRespuesta, MODELO } from '../_shared/dictado/peticion.ts'
+import { hoyEnLima } from '../_shared/dictado/fechas.ts'
 
 /**
  * Producción (ctv2-tayros), cada despliegue (ctv2-<9 caracteres>-tayros), las
@@ -50,11 +51,6 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/
 const MAX_CARACTERES = 1000
 const LIMITE_DIA = Math.max(1, Number(Deno.env.get('LIMITE_DICTADOS_DIA')) || 300)
 
-/**
- * Hoy en Lima, que es donde se dicta. En UTC, a partir de las 19:00 de Lima ya
- * es mañana, y «vence el 30» se calcularía desde el día equivocado.
- */
-const hoyEnLima = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(new Date())
 
 /**
  * La clave pública del proyecto. Según la versión de la plataforma llega con un

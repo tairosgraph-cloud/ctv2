@@ -105,6 +105,8 @@ export interface FormularioPedido extends Dictado {
   lineas: { descripcion: string; monto: string }[]
   /** null: la frase no dice cómo se cobró; el formulario deja lo que tenga. */
   cobro: { parcial: boolean; adelanto: string } | null
+  /** Para cuándo es ('AAAA-MM-DD'), si la frase lo dice. */
+  entrega: string | null
 }
 
 export function formularioDePedido(ex: Extraccion, catalogo: ReadonlyArray<Parte>): FormularioPedido | null {
@@ -123,6 +125,7 @@ export function formularioDePedido(ex: Extraccion, catalogo: ReadonlyArray<Parte
   if (p.telefono) marcas.add('telefono')
   if (p.categoria) marcas.add('categoria')
   if (p.pago) marcas.add('pago')
+  if (p.entrega) marcas.add('entrega')
 
   const lineas = (p.items.length ? p.items : [{ descripcion: '', monto: null }]).map((item, i) => {
     if (item.descripcion) marcas.add(`descripcion-${i}`)
@@ -193,6 +196,7 @@ export function formularioDePedido(ex: Extraccion, catalogo: ReadonlyArray<Parte
     pago: p.pago,
     lineas,
     cobro,
+    entrega: p.entrega ?? null,
     marcas: [...marcas],
     dudas,
     faltantes,

@@ -18,9 +18,8 @@ import { validarExtraccion } from './validar'
 /** El dictado se corta aquí y sigue con las reglas; la función corta a los 5 s. */
 export const LIMITE_MS = 6_000
 
-/** Hoy en Lima, que es donde se dicta: «vence el 30» se cuenta desde aquí. */
-export const hoyEnLima = (ahora = new Date()) =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(ahora)
+export { hoyEnLima } from '../../../supabase/functions/_shared/dictado/fechas.ts'
+import { hoyEnLima } from '../../../supabase/functions/_shared/dictado/fechas.ts'
 
 export type Invocar = (
   cuerpo: { texto: string; hoy: string },

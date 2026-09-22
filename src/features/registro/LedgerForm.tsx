@@ -6,6 +6,7 @@ import { useDictado, type Borrador } from '@/hooks/useDictado'
 import { usePartes } from '@/hooks/usePartes'
 import { useRecognizer } from '@/hooks/useSpeech'
 import { useToast } from '@/hooks/useToast'
+import { hoyEnLima } from '@/lib/dictado/extraer'
 import { formularioDePedido, type Duda, type FormularioPedido } from '@/lib/dictado/formulario'
 import { money, parseAmount } from '@/lib/format'
 import { useData } from '@/store/DataProvider'
@@ -138,6 +139,14 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
   )
   const [saving, setSaving] = useState(false)
   const [interpretando, setInterpretando] = useState(false)
+  /**
+   * Cuándo se lleva el trabajo. 'ya' = venta al instante (no ocupa el tablero
+   * de Trabajos); 'fecha' = comprometida; 'pendiente' = en el taller, sin día.
+   * Mientras nadie lo elija, un pago completo es 'ya' y un adelanto o crédito
+   * es 'pendiente': lo que no se paga entero rara vez sale en el momento.
+   */
+  const [entregaModo, setEntregaModo] = useState<'ya' | 'fecha' | 'pendiente' | null>(inicial?.entrega ? 'fecha' : null)
+  const [entregaFecha, setEntregaFecha] = useState(inicial?.entrega ?? '')
 
   /** Lo que escribió el dictado y nadie ha confirmado todavía: en ámbar. */
   const campos = useCamposDictados(arranque?.marcas)
@@ -185,6 +194,7 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
   const advanceExceeds = partial && advanceValue > total + 0.001
 
   const isCobrar = type === 'Ingreso'
+  const modoEntrega = entregaModo ?? (partial ? 'pendiente' : 'ya')
 
   const setLine = (key: number, patch: Partial<JobLine>) =>
     setLines((current) => current.map((l) => (l.key === key ? { ...l, ...patch } : l)))
@@ -222,6 +232,10 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
     if (formulario.categoria && !supuesto.has('categoria')) setCategory(formulario.categoria)
     else noAplicadas.add('categoria')
     if (formulario.pago) setPayment(formulario.pago)
+    if (formulario.entrega) {
+      setEntregaModo('fecha')
+      setEntregaFecha(formulario.entrega)
+    }
     setLines((current) => [...current.filter((l) => l.description.trim() || l.amount.trim()), ...lineas])
 
     if (formulario.cobro && !supuesto.has('cobro')) {
@@ -301,6 +315,8 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
     setOrigenVoz(false)
     cobroDecidido.current = false
     setCobroPorConfirmar(false)
+    setEntregaModo(null)
+    setEntregaFecha('')
   }
 
   /**
@@ -347,6 +363,10 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
       toast.error('Escribe cuánto adelantó, o pulsa «Sin adelanto» si se lo lleva al crédito')
       return
     }
+    if (!editing && isCobrar && modoEntrega === 'fecha' && !entregaFecha) {
+      toast.error('Elige el día de entrega, o marca «Sin fecha todavía»')
+      return
+    }
 
     setSaving(true)
     try {
@@ -368,10 +388,14 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
         return
       }
 
+      // Los gastos no pasan por el taller: nacen entregados.
+      const conTaller = isCobrar && modoEntrega !== 'ya'
       const { workOrder, transaction, debt } = await registerWorkOrder({
         kind: type,
         ...payload,
         source: origenVoz ? 'voz' : 'manual',
+        estado: conTaller ? 'recibido' : 'entregado',
+        entrega: conTaller && modoEntrega === 'fecha' ? entregaFecha : null,
       })
       anotarDictado(workOrder.id)
 
@@ -668,6 +692,63 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null }: Ledge
           </div>
         )}
       </div>
+
+      {/* 4b — Entrega (solo trabajos para un cliente, y no al corregir: eso va en Trabajos) */}
+      {isCobrar && !editing && (
+        <div
+          className={`rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950${
+            campos.marcados.has('entrega') ? ' ring-1 ring-amber-400 dark:ring-amber-500/60' : ''
+          }`}
+          {...campos.describe('entrega')}
+        >
+          <p className="mb-2 text-xs font-semibold text-slate-700 dark:text-slate-200">Entrega</p>
+          <div role="radiogroup" aria-label="Entrega" className="flex flex-wrap gap-1.5">
+            {(
+              [
+                ['ya', 'Se lo lleva ya'],
+                ['fecha', 'Para el día…'],
+                ['pendiente', 'Sin fecha todavía'],
+              ] as const
+            ).map(([valor, texto]) => (
+              <button
+                key={valor}
+                type="button"
+                role="radio"
+                aria-checked={modoEntrega === valor}
+                onClick={() => {
+                  setEntregaModo(valor)
+                  editar('entrega')
+                }}
+                className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold transition-colors ${
+                  modoEntrega === valor
+                    ? 'border-brand-500 bg-brand-50 text-brand-800 dark:bg-brand-500/10 dark:text-brand-300'
+                    : 'border-slate-200 text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:text-slate-400'
+                }`}
+              >
+                {texto}
+              </button>
+            ))}
+          </div>
+          {modoEntrega === 'fecha' && (
+            <input
+              type="date"
+              value={entregaFecha}
+              min={hoyEnLima()}
+              onChange={(event) => {
+                setEntregaFecha(event.target.value)
+                editar('entrega')
+              }}
+              aria-label="Día de entrega"
+              className={`field mt-2${campos.clase('entrega')}`}
+            />
+          )}
+          <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+            {modoEntrega === 'ya'
+              ? 'Venta al instante: no pasa por el tablero de Trabajos.'
+              : 'Aparece en Trabajos para seguirlo hasta entregarlo.'}
+          </p>
+        </div>
+      )}
 
       {/* 5 — Clasificación */}
       <div className="grid grid-cols-2 gap-3">

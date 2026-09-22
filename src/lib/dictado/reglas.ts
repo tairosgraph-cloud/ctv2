@@ -26,6 +26,7 @@ import {
   type Vigencia,
 } from '../../../supabase/functions/_shared/dictado/tipos.ts'
 import { normalizarDictado, palabra } from '../../../supabase/functions/_shared/dictado/vocabulario.ts'
+import { fechaDeEntrega, hoyEnLima } from '../../../supabase/functions/_shared/dictado/fechas.ts'
 
 const NUMERO = [
   'un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince',
@@ -166,7 +167,7 @@ function vacia(intent: Intencion): Extraccion {
   }
 }
 
-export function desdeReglas(texto: string): Extraccion {
+export function desdeReglas(texto: string, hoy: string = hoyEnLima()): Extraccion {
   const limpio = normalizarDictado(texto)
   const p = parseVoiceEntry(limpio)
   const tipo = tipoExplicito(limpio)
@@ -283,6 +284,7 @@ export function desdeReglas(texto: string): Extraccion {
     items: [{ descripcion: p.concept, monto: precio }],
     adelanto: adelanto.tipo === 'total' ? { tipo: 'total', monto: precio } : adelanto,
     notas: null,
+    entrega: fechaDeEntrega(limpio, hoy),
   }
 
   if (!tipo) r.supuestos.push(CAMPOS.kind)

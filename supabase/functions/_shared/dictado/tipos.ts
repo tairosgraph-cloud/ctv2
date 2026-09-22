@@ -77,6 +77,8 @@ export interface PedidoDictado {
   items: ItemDictado[]
   adelanto: Cobro
   notas: string | null
+  /** Para cuándo es el trabajo ('AAAA-MM-DD'), si la frase lo dice. */
+  entrega: string | null
 }
 
 export interface ProformaDictada {
@@ -150,6 +152,7 @@ export const CAMPOS = {
   monto: 'monto',
   concepto: 'concepto',
   vence: 'vence',
+  entrega: 'entrega',
 } as const
 
 export const montoDeItem = (i: number) => `items.${i}.monto`

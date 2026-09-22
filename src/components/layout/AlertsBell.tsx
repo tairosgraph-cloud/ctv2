@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSpeaker } from '@/hooks/useSpeech'
 import { briefingToSpeech, buildDebtBriefing, describirAntiguedad, type DebtAlert } from '@/lib/debtAlerts'
 import { money } from '@/lib/format'
+import { armarTablero } from '@/lib/trabajos'
 import { useData } from '@/store/DataProvider'
 
 const URGENCIA_ESTILO = {
@@ -39,13 +40,16 @@ function Fila({ alert }: { alert: DebtAlert }) {
  * recordatorio pasivo lo hace la cinta de abajo; aquí está el detalle cuando
  * lo pides. Tampoco suena nada solo: la voz está tras el botón «Escuchar».
  */
-export function AlertsBell({ onGoToDebts }: { onGoToDebts: () => void }) {
-  const { debts } = useData()
+export function AlertsBell({ onGoToDebts, onGoToTrabajos }: { onGoToDebts: () => void; onGoToTrabajos: () => void }) {
+  const { debts, workOrders } = useData()
   const { speaking, say, stop } = useSpeaker()
   const [open, setOpen] = useState(false)
   const contenedor = useRef<HTMLDivElement>(null)
 
   const briefing = useMemo(() => buildDebtBriefing(debts), [debts])
+  // Lo del taller que corre prisa: atrasado o para hoy.
+  const taller = useMemo(() => armarTablero(workOrders, debts, new Date()), [workOrders, debts])
+  const trabajosUrgentes = taller.atrasados + taller.paraHoy
 
   // Cerrar al pulsar fuera o con Escape.
   useEffect(() => {
@@ -66,7 +70,8 @@ export function AlertsBell({ onGoToDebts }: { onGoToDebts: () => void }) {
 
   useEffect(() => () => stop(), [stop])
 
-  const hayUrgentes = briefing.urgentes > 0
+  const hayUrgentes = briefing.urgentes > 0 || taller.atrasados > 0
+  const avisos = briefing.pendientes + trabajosUrgentes
 
   return (
     <div ref={contenedor} className="relative">
@@ -74,18 +79,18 @@ export function AlertsBell({ onGoToDebts }: { onGoToDebts: () => void }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        aria-label={`Avisos de deudas: ${briefing.pendientes} cuentas pendientes`}
-        title="Avisos de deudas y cobros"
+        aria-label={`Avisos: ${briefing.pendientes} cuentas pendientes y ${trabajosUrgentes} trabajos urgentes`}
+        title="Avisos de trabajos, deudas y cobros"
         className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
       >
         <i className="fa-regular fa-bell text-sm" aria-hidden="true" />
-        {briefing.pendientes > 0 && (
+        {avisos > 0 && (
           <span
             className={`absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white ${
               hayUrgentes ? 'bg-rose-600' : 'bg-brand-700 dark:bg-brand-600'
             }`}
           >
-            {briefing.pendientes}
+            {avisos}
           </span>
         )}
       </button>
@@ -116,6 +121,26 @@ export function AlertsBell({ onGoToDebts }: { onGoToDebts: () => void }) {
               <i className="fa-solid fa-xmark text-xs" aria-hidden="true" />
             </button>
           </div>
+
+          {trabajosUrgentes > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                stop()
+                onGoToTrabajos()
+              }}
+              className="flex w-full items-center justify-between gap-2 border-b border-slate-100 bg-rose-50/60 px-4 py-2.5 text-left text-xs font-semibold text-rose-800 transition-colors hover:bg-rose-50 dark:border-slate-800 dark:bg-rose-500/10 dark:text-rose-300"
+            >
+              <span>
+                <i className="fa-solid fa-list-check mr-1.5" aria-hidden="true" />
+                Taller: {taller.atrasados > 0 && `${taller.atrasados} atrasado${taller.atrasados > 1 ? 's' : ''}`}
+                {taller.atrasados > 0 && taller.paraHoy > 0 && ' · '}
+                {taller.paraHoy > 0 && `${taller.paraHoy} para hoy`}
+              </span>
+              <span className="shrink-0 text-[11px] font-bold">Ver trabajos →</span>
+            </button>
+          )}
 
           <div className="max-h-[24rem] overflow-y-auto p-4 pt-3">
             {briefing.pendientes === 0 ? (

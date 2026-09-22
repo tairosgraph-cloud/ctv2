@@ -9,6 +9,7 @@ import { DeudasView } from '@/features/deudas/DeudasView'
 import { MovimientosView } from '@/features/movimientos/MovimientosView'
 import { ProformasView } from '@/features/proformas/ProformasView'
 import { RegistroView } from '@/features/registro/RegistroView'
+import { TrabajosView } from '@/features/trabajos/TrabajosView'
 import { useAuth } from '@/hooks/useAuth'
 import { useCuentaActiva } from '@/hooks/useCuentaActiva'
 import { DictadoProvider, useDictado } from '@/hooks/useDictado'
@@ -130,6 +131,7 @@ function Panel() {
       <ConnectionBanner />
 
       {tab === 'registro' && <RegistroView search={search} />}
+      {tab === 'trabajos' && <TrabajosView search={search} />}
       {tab === 'movimientos' && <MovimientosView search={search} />}
       {tab === 'proformas' && <ProformasView search={search} />}
       {tab === 'deudas' && <DeudasView search={search} />}

@@ -12,9 +12,10 @@ interface TopbarProps {
   onSearchChange: (value: string) => void
   onOpenMenu: () => void
   onGoToDebts: () => void
+  onGoToTrabajos: () => void
 }
 
-export function Topbar({ search, onSearchChange, onOpenMenu, onGoToDebts }: TopbarProps) {
+export function Topbar({ search, onSearchChange, onOpenMenu, onGoToDebts, onGoToTrabajos }: TopbarProps) {
   const { stats } = useData()
   const dictado = useDictado()
   const informe = useInformeGeneral()
@@ -77,7 +78,7 @@ export function Topbar({ search, onSearchChange, onOpenMenu, onGoToDebts }: Topb
           className="h-9 w-9 text-sm"
         />
 
-        <AlertsBell onGoToDebts={onGoToDebts} />
+        <AlertsBell onGoToDebts={onGoToDebts} onGoToTrabajos={onGoToTrabajos} />
 
         <button
           type="button"
