@@ -39,6 +39,12 @@ interface DictadoApi {
   arreglar: (borrador: Borrador, escrito: string) => Promise<Borrador>
   /** Cambia el borrador que espera formulario (el arreglo de uno abierto). */
   reemplazar: (borrador: Borrador) => void
+  /**
+   * ¿Se puede pedir un arreglo por escrito? Solo con el intérprete inteligente
+   * desplegado: las reglas no saben a qué campo se refiere lo escrito. Mientras
+   * no lo esté, los formularios no ofrecen el campo.
+   */
+  puedeArreglar: boolean
   /** Lo que espera formulario; null si no hay nada pendiente. */
   borrador: Borrador | null
   /** Se cerró el formulario sin guardar. */
@@ -64,8 +70,17 @@ export function DictadoProvider({ children }: { children: ReactNode }) {
 
   // Al entrar se pregunta si el intérprete inteligente está listo. Además de
   // saberlo antes del primer dictado, despierta la función.
+  const [puedeArreglar, setPuedeArreglar] = useState(false)
   useEffect(() => {
-    if (conSesion) void comprobarInterprete()
+    if (!conSesion) {
+      setPuedeArreglar(false)
+      return
+    }
+    let vivo = true
+    void comprobarInterprete().then((estado) => vivo && setPuedeArreglar(estado === 'disponible'))
+    return () => {
+      vivo = false
+    }
   }, [conSesion])
 
   /**
@@ -182,12 +197,13 @@ export function DictadoProvider({ children }: { children: ReactNode }) {
       },
       interpretar,
       arreglar,
+      puedeArreglar,
       reemplazar,
       borrador,
       descartar,
       confirmar,
     }),
-    [estado, supported, extrayendo, loading, listening, toast, toggle, interpretar, arreglar, reemplazar, borrador, descartar, confirmar],
+    [estado, supported, extrayendo, loading, listening, toast, toggle, interpretar, arreglar, puedeArreglar, reemplazar, borrador, descartar, confirmar],
   )
 
   return <DictadoContext.Provider value={valor}>{children}</DictadoContext.Provider>

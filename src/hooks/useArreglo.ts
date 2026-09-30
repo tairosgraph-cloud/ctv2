@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/useToast'
  * volver a montar, para no perder lo que alguien haya tecleado mientras.
  */
 export function useArreglo(borrador: Borrador | null) {
-  const { arreglar, reemplazar } = useDictado()
+  const { arreglar, puedeArreglar, reemplazar } = useDictado()
   const toast = useToast()
   const [arreglando, setArreglando] = useState(false)
 
@@ -35,5 +35,5 @@ export function useArreglo(borrador: Borrador | null) {
     [arreglar, borrador, reemplazar, toast],
   )
 
-  return { arreglando, pedir: borrador ? pedir : undefined }
+  return { arreglando, pedir: borrador && puedeArreglar ? pedir : undefined }
 }

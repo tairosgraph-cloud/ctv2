@@ -104,7 +104,7 @@ function prepararAplicacion(formulario: FormularioPedido, libres: JobLine[]): Ap
 
 export function LedgerForm({ onSaved, onCancel, editing, dictado = null, paraCliente = null }: LedgerFormProps = {}) {
   const { registerWorkOrder, editWorkOrder, transactions, clientes, productos } = useData()
-  const { interpretar, arreglar, confirmar } = useDictado()
+  const { interpretar, arreglar, puedeArreglar, confirmar } = useDictado()
   const partes = usePartes()
   const toast = useToast()
 
@@ -500,7 +500,7 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null, paraCli
           supuestos={supuestos}
           onElegir={elegir}
           onRevisado={revisado}
-          onArreglar={borrador ? pedirArreglo : undefined}
+          onArreglar={borrador && puedeArreglar ? pedirArreglo : undefined}
           arreglando={arreglando}
         />
       )}
