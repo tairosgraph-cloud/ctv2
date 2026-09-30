@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { StatCard } from '@/components/ui/StatCard'
+import { usePermisos } from '@/hooks/usePermisos'
 import { useToast } from '@/hooks/useToast'
 import { buildCashArqueo, describeCashWindow } from '@/lib/cashArqueo'
 import { money, parseAmount, shortDateTime } from '@/lib/format'
@@ -10,6 +11,7 @@ const DENOMINATIONS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1]
 
 export function ArqueoView() {
   const { stats, closings, transactions, registrarCierre } = useData()
+  const { esGerente } = usePermisos()
   const toast = useToast()
   const [opening, setOpening] = useState('')
   /** Deja de precargar en cuanto el usuario escribe: no le pisamos el número. */
@@ -308,15 +310,23 @@ export function ArqueoView() {
               <i className="fa-solid fa-file-export" aria-hidden="true" />
               Resumen ejecutivo
             </button>
-            <button
-              type="button"
-              onClick={() => void cerrar()}
-              disabled={saving || !hasCount}
-              className="btn-primary px-5 py-2.5"
-            >
-              <i className="fa-solid fa-lock" aria-hidden="true" />
-              {saving ? 'Guardando…' : 'Cerrar caja'}
-            </button>
+            {/* Cerrar la caja es del gerente: la cuenta del mostrador cuenta el
+                efectivo, pero el cierre lo firma quien responde por él. */}
+            {esGerente ? (
+              <button
+                type="button"
+                onClick={() => void cerrar()}
+                disabled={saving || !hasCount}
+                className="btn-primary px-5 py-2.5"
+              >
+                <i className="fa-solid fa-lock" aria-hidden="true" />
+                {saving ? 'Guardando…' : 'Cerrar caja'}
+              </button>
+            ) : (
+              <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                El cierre lo hace el gerente. Puedes contar el efectivo y dejarle la diferencia anotada.
+              </p>
+            )}
           </div>
         </div>
 
