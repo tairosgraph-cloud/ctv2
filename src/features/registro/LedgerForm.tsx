@@ -104,7 +104,7 @@ function prepararAplicacion(formulario: FormularioPedido, libres: JobLine[]): Ap
 
 export function LedgerForm({ onSaved, onCancel, editing, dictado = null, paraCliente = null }: LedgerFormProps = {}) {
   const { registerWorkOrder, editWorkOrder, transactions, clientes, productos } = useData()
-  const { interpretar, confirmar } = useDictado()
+  const { interpretar, arreglar, confirmar } = useDictado()
   const partes = usePartes()
   const toast = useToast()
 
@@ -143,6 +143,7 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null, paraCli
   )
   const [saving, setSaving] = useState(false)
   const [interpretando, setInterpretando] = useState(false)
+  const [arreglando, setArreglando] = useState(false)
   const [delCatalogo, setDelCatalogo] = useState(false)
   /**
    * Cuándo se lleva el trabajo. 'ya' = venta al instante (no ocupa el tablero
@@ -234,7 +235,7 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null, paraCli
    * que ya hay: lo que la frase dice se escribe, y lo que solo supone (el
    * tipo, la categoría, «pagó todo») no pisa lo que ya estaba.
    */
-  const aplicar = (b: Borrador) => {
+  const aplicar = (b: Borrador, reemplazarLineas = false) => {
     const formulario = formularioDePedido(b.resultado.extraccion, partes, productos)
     if (!formulario) return
     const supuesto = new Set(b.resultado.extraccion.supuestos)
@@ -257,7 +258,11 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null, paraCli
       setEntregaModo('fecha')
       setEntregaFecha(formulario.entrega)
     }
-    setLines((current) => [...current.filter((l) => l.description.trim() || l.amount.trim()), ...lineas])
+    // Un dictado nuevo suma sus líneas a las que ya hay; un arreglo las
+    // sustituye, porque habla del pedido entero y sumarlas lo duplicaría.
+    setLines((current) =>
+      reemplazarLineas ? lineas : [...current.filter((l) => l.description.trim() || l.amount.trim()), ...lineas],
+    )
 
     if (formulario.cobro && !supuesto.has('cobro')) {
       setPartial(formulario.cobro.parcial)
@@ -277,6 +282,31 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null, paraCli
     // son las del primero, que siguen en pantalla.
     setBorradores((actual) => [...actual, b])
     setOrigenVoz(true)
+  }
+
+  /**
+   * El segundo filtro: lo que se escribe en la franja ámbar vuelve al
+   * intérprete con lo que ya había entendido delante. Si no pudo, el borrador
+   * se queda igual y el aviso dice por qué; a mano siempre se puede.
+   */
+  const pedirArreglo = async (escrito: string) => {
+    if (!borrador) return
+    setArreglando(true)
+    try {
+      const nuevo = await arreglar(borrador, escrito)
+      if (nuevo.resultado.aviso) toast.info(nuevo.resultado.aviso)
+      if (nuevo.resultado.extraccion === borrador.resultado.extraccion) return
+      if (rutaDe(nuevo.resultado.extraccion.intent) !== 'registro') {
+        toast.info(
+          `Con ese arreglo ya no es una orden, sino ${NOMBRE_DE_RUTA[rutaDe(nuevo.resultado.extraccion.intent)] ?? 'otra cosa'}: díctalo con el micrófono de la barra superior.`,
+        )
+        return
+      }
+      aplicar(nuevo, true)
+      toast.success('Listo, apliqué tu arreglo: revisa lo que quedó en ámbar.')
+    } finally {
+      setArreglando(false)
+    }
   }
 
   const elegir = (campo: string, valor: string) => {
@@ -470,6 +500,8 @@ export function LedgerForm({ onSaved, onCancel, editing, dictado = null, paraCli
           supuestos={supuestos}
           onElegir={elegir}
           onRevisado={revisado}
+          onArreglar={borrador ? pedirArreglo : undefined}
+          arreglando={arreglando}
         />
       )}
 

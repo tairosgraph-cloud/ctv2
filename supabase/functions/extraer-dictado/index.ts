@@ -18,7 +18,7 @@
  */
 import Anthropic from 'npm:@anthropic-ai/sdk@0.127.0'
 import { createClient } from 'npm:@supabase/supabase-js@2.112.3'
-import { construirPeticion, leerRespuesta, MODELO } from '../_shared/dictado/peticion.ts'
+import { construirPeticion, leerRespuesta, MODELO, type Arreglo } from '../_shared/dictado/peticion.ts'
 import { hoyEnLima } from '../_shared/dictado/fechas.ts'
 
 /**
@@ -69,6 +69,23 @@ function clavePublica(req: Request): string | undefined {
   return req.headers.get('apikey') ?? undefined
 }
 
+/**
+ * El arreglo escrito, si viene con forma: el texto que la persona escribió para
+ * corregir el borrador, el borrador y los puntos que la guarda vio mal. Nada de
+ * esto se cree: el modelo lo recibe como datos y el cliente vuelve a validar.
+ */
+function leerArreglo(valor: unknown): Arreglo | null {
+  if (typeof valor !== 'object' || valor === null) return null
+  const v = valor as Record<string, unknown>
+  const texto = typeof v.texto === 'string' ? v.texto.trim() : ''
+  if (!texto || texto.length > MAX_CARACTERES) return null
+  if (typeof v.borrador !== 'object' || v.borrador === null) return null
+  const problemas = Array.isArray(v.problemas)
+    ? v.problemas.filter((x): x is string => typeof x === 'string' && x.length <= 40).slice(0, 12)
+    : []
+  return { texto, borrador: v.borrador, problemas }
+}
+
 /** Una línea por petición en los registros: qué pasó y cuánto tardó, sin la frase. */
 function registrar(evento: string, datos: Record<string, unknown> = {}) {
   console.log(JSON.stringify({ evento, ...datos }))
@@ -114,6 +131,8 @@ Deno.serve(async (req) => {
     return responder(400, { error: 'Dictado vacío o demasiado largo' })
   }
   const hoy = typeof cuerpo?.hoy === 'string' && FECHA.test(cuerpo.hoy) ? cuerpo.hoy : hoyEnLima()
+  const arreglo = leerArreglo(cuerpo?.arreglo)
+  if (cuerpo?.arreglo !== undefined && !arreglo) return responder(400, { error: 'Arreglo mal formado' })
 
   // Permiso y cupo, en la base y con la sesión de quien dicta: una cuenta
   // inactiva o sin permiso de registrar no gasta la clave.
@@ -139,7 +158,7 @@ Deno.serve(async (req) => {
   const modelo = new Anthropic({ apiKey: claveModelo, timeout: 5_000, maxRetries: 0 })
   const inicio = performance.now()
   try {
-    const respuesta = await modelo.beta.messages.create(construirPeticion(texto, hoy))
+    const respuesta = await modelo.beta.messages.create(construirPeticion(texto, hoy, 'low', arreglo))
     const ms = Math.round(performance.now() - inicio)
     const uso = {
       entrada: respuesta.usage.input_tokens,
@@ -147,7 +166,14 @@ Deno.serve(async (req) => {
       salida: respuesta.usage.output_tokens,
     }
     const extraccion = leerRespuesta(respuesta)
-    registrar(extraccion ? 'ok' : 'ilegible', { usuario, ms, stop: respuesta.stop_reason, modelo: respuesta.model, ...uso })
+    registrar(extraccion ? 'ok' : 'ilegible', {
+      usuario,
+      modo: arreglo ? 'arreglo' : 'dictado',
+      ms,
+      stop: respuesta.stop_reason,
+      modelo: respuesta.model,
+      ...uso,
+    })
     if (!extraccion) return responder(502, { error: 'Respuesta del modelo ilegible' })
     return responder(200, { extraccion, modelo: respuesta.model, ms, uso })
   } catch (error) {
@@ -156,6 +182,7 @@ Deno.serve(async (req) => {
     // se queda en los registros; el navegador solo sabe que falló.
     registrar('fallo-modelo', {
       usuario,
+      modo: arreglo ? 'arreglo' : 'dictado',
       ms,
       tipo: error instanceof Error ? error.constructor.name : typeof error,
       estado: error instanceof Anthropic.APIError ? error.status : undefined,

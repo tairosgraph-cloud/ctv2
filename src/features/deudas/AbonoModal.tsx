@@ -5,6 +5,7 @@ import { WorkOrderBreakdown } from '@/components/ui/WorkOrderBreakdown'
 import { db } from '@/data'
 import { useCamposDictados } from '@/hooks/useCamposDictados'
 import { useDictado, type Borrador } from '@/hooks/useDictado'
+import { useArreglo } from '@/hooks/useArreglo'
 import { useToast } from '@/hooks/useToast'
 import { formularioDeAbono, type Duda } from '@/lib/dictado/formulario'
 import { money, parseAmount, shortDateTime } from '@/lib/format'
@@ -27,6 +28,7 @@ interface Props {
 export function AbonoModal({ debt, onClose, dictado = null }: Props) {
   const { abonarDeuda, borrarAbono } = useData()
   const { confirmar } = useDictado()
+  const arreglo = useArreglo(dictado)
   const toast = useToast()
   const [arranque] = useState(() => (dictado ? formularioDeAbono(dictado.resultado.extraccion) : null))
   const [amount, setAmount] = useState(arranque?.monto ?? '')
@@ -152,6 +154,8 @@ export function AbonoModal({ debt, onClose, dictado = null }: Props) {
 
         {dictado && arranque && (
           <AvisoDictado
+            onArreglar={arreglo.pedir}
+            arreglando={arreglo.arreglando}
             origen={dictado.resultado.extraccion.origen}
             aviso={dictado.resultado.aviso}
             marcados={campos.marcados.size}

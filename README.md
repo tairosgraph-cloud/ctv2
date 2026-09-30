@@ -17,7 +17,7 @@ actual (Supabase / local) se ve en la esquina inferior de la barra lateral.
 ## Estado: conectado a Supabase ✅
 
 El proyecto está enlazado con una base real y tiene aplicadas las migraciones
-`0001`–`0016` (la `0006` no existe: la sustituyó `0009`). Lo que hay creado:
+`0001`–`0017` (la `0006` no existe: la sustituyó `0009`). Lo que hay creado:
 
 | | |
 | --- | --- |
@@ -927,6 +927,52 @@ algo más:
 3. Si la función falla, tarda más de 6 s, se acabó el cupo diario o devuelve
    algo que no tiene la forma del esquema, se usan las reglas y se avisa.
    Nunca lanza.
+
+### Varios trabajos en una frase
+
+«500 tarjetas a 85 y mil volantes a 240» son dos líneas, y el precio de una no
+puede acabar en la otra. Antes de creerse ninguna cifra, la frase se parte por
+los trabajos que nombra (`src/lib/dictado/segmentar.ts`), y con eso:
+
+- las reglas sacan **una línea por trabajo** en vez de rendirse (antes dejaban
+  el hueco con todos los precios como opciones);
+- el validador exige que el precio de cada línea esté dicho **en su trozo**: una
+  cifra que está en la frase pero en otro trabajo no pasa, y se ofrecen las dos.
+  Mirando la frase entera esto no se ve, porque las dos cifras están dichas;
+- el prompt del modelo lleva la misma regla, y la segunda opinión de las reglas
+  compara línea por línea.
+
+Solo se parte cuando **al menos dos trabajos traen su propio precio**. Un precio
+para varias cosas («60 soles por fotocopias y anillado») es una sola línea:
+repartirlo sería inventar. Lo que se dice una vez y vale para todo el pedido
+—quién, cómo pagó, el adelanto, para cuándo— no es de ninguna línea.
+
+### Si entendió mal: arréglalo por escrito
+
+En la franja ámbar hay un campo: «¿Entendió mal? Dile qué arreglar». Se escribe
+en corrido —«eran 280 y dejó 100 en yape»— y el intérprete vuelve a pasar con lo
+que ya había entendido delante y con los puntos que la guarda vio mal.
+
+- La respuesta **no reemplaza** el borrador: se fusiona campo por campo
+  (`src/lib/dictado/corregir.ts`). Un arreglo solo cambia lo que nombra; lo que
+  no nombra queda igual, y lo que nadie dijo sigue vacío.
+- Las cifras del arreglo cuentan como dichas (las escribió una persona); una que
+  no está ni en la frase ni en el arreglo sigue sin pasar.
+- Puede cambiar el tipo de registro («no era una venta, era una cotización»):
+  entonces se abre el formulario que toca.
+- Si el intérprete inteligente no está o falla, el borrador **queda intacto** y
+  el aviso lo dice; a mano siempre se puede.
+
+Cada arreglo deja su propia fila en `voice_extractions` (`arreglo`, `corrige`,
+migración `0017`), así que se puede medir cuántos dictados necesitaron uno:
+
+```sql
+select v.origen, count(*) as dictados, count(c.id) as con_arreglo
+from voice_extractions v left join voice_extractions c on c.corrige = v.id
+where v.corrige is null group by v.origen;
+```
+
+Cuesta otra llamada al modelo y cuenta para el cupo del día.
 
 **Se activa solo**: la app pregunta a la función si tiene clave (`GET`, sin
 sesión, sin coste). Mientras no esté desplegada, el dictado usa las reglas sin

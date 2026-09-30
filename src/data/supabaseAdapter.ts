@@ -799,6 +799,8 @@ export const supabaseAdapter: DataAdapter = {
           tokens_entrada: input.uso?.entrada ?? null,
           tokens_cache: input.uso?.cacheLectura ?? null,
           tokens_salida: input.uso?.salida ?? null,
+          arreglo: input.arreglo?.slice(0, 1000) ?? null,
+          corrige: input.corrige ?? null,
         })
         .select('id')
         .single<{ id: string }>(),

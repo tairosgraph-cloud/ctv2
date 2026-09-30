@@ -270,6 +270,10 @@ export interface NuevoDictado {
   aviso: string | null
   ms: number
   uso: { entrada: number; cacheLectura: number; salida: number } | null
+  /** Si esta fila es un arreglo: lo que se escribió para corregir el borrador. */
+  arreglo?: string | null
+  /** La fila del dictado que esta corrige; null en un dictado normal. */
+  corrige?: string | null
 }
 
 export type TipoDeRegistro = 'pedido' | 'proforma' | 'deuda' | 'abono'

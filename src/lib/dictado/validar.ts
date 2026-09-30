@@ -20,6 +20,7 @@ import {
   type Ruta,
 } from '../../../supabase/functions/_shared/dictado/tipos.ts'
 import { normalizarDictado } from '../../../supabase/functions/_shared/dictado/vocabulario.ts'
+import { alinear, segmentar } from './segmentar'
 import { fechaDeEntregaValida, hayFechaDeEntrega, hoyEnLima } from '../../../supabase/functions/_shared/dictado/fechas.ts'
 
 const iguales = (a: number, b: number) => Math.abs(a - b) < 0.005
@@ -84,7 +85,17 @@ export function respaldo(valor: number, textoNormalizado: string, clase: ClaseDe
 const esPositivo = (n: number | null | undefined): n is number =>
   typeof n === 'number' && Number.isFinite(n) && n > 0
 
-export function validarExtraccion(entrada: Extraccion, texto: string, hoy: string = hoyEnLima()): Extraccion {
+export function validarExtraccion(
+  entrada: Extraccion,
+  texto: string,
+  hoy: string = hoyEnLima(),
+  /**
+   * false cuando `texto` son dos textos pegados (el dictado y su arreglo): ahí
+   * los trozos no se corresponden con las líneas y exigirlo dejaría huecos que
+   * la persona ya había resuelto. La guarda de cifras sigue, sobre todo el texto.
+   */
+  porTrozos = true,
+): Extraccion {
   const ex: Extraccion = structuredClone(entrada)
   const ruta: Ruta = rutaDe(ex.intent)
   const normal = normalizarDictado(texto)
@@ -105,6 +116,26 @@ export function validarExtraccion(entrada: Extraccion, texto: string, hoy: strin
     if (!esPositivo(valor)) return null
     if (respaldo(valor, normal, clase) === 'respaldada') return valor
     ambiguo(campo, opcionesDeMonto)
+    return null
+  }
+
+  /** Las cifras de dinero que dice un trozo, de menor a mayor. */
+  const cifrasDe = (trozo: string) =>
+    [...new Set(cifrasDeLaFrase(trozo).filter((c) => !c.descartada).map((c) => c.valor))]
+      .sort((a, b) => a - b)
+      .map(String)
+
+  /**
+   * El precio de una línea, buscado en el trozo que habla de ese trabajo
+   * (`trozo`) cuando se sabe cuál es, y en toda la frase cuando no.
+   */
+  const guardarPrecio = (campo: string, valor: number | null, trozo: string | null): number | null => {
+    if (!esPositivo(valor)) return null
+    if (respaldo(valor, trozo ?? normal, 'precio') === 'respaldada') return valor
+    // Las opciones son las de su trozo si ofrece más de una; si no, las de la
+    // frase, que siempre las incluye. Nunca una cifra que nadie dijo.
+    const delTrozo = trozo ? cifrasDe(trozo) : []
+    ambiguo(campo, delTrozo.length >= 2 ? delTrozo : opcionesDeMonto)
     return null
   }
 
@@ -151,9 +182,19 @@ export function validarExtraccion(entrada: Extraccion, texto: string, hoy: strin
         p.telefono = digitos.length >= 7 ? digitos : null
       }
 
-      p.items = p.items
-        .filter((it) => it.descripcion?.trim() || it.monto !== null)
-        .map((it, i) => ({ descripcion: it.descripcion.trim(), monto: guardar(montoDeItem(i), it.monto, 'precio') }))
+      // Con varios trabajos en la frase, el precio de cada línea tiene que
+      // estar dicho en SU trozo: si está en la frase pero en otro trabajo, es
+      // un precio en la línea equivocada, y eso la frase entera no lo ve.
+      const vivos = p.items.filter((it) => it.descripcion?.trim() || it.monto !== null)
+      const trozos = segmentar(normal)
+      const suyo =
+        porTrozos && trozos.varios
+          ? alinear(vivos.map((it) => it.descripcion ?? ''), trozos.lineas)
+          : vivos.map(() => null)
+      p.items = vivos.map((it, i) => ({
+        descripcion: it.descripcion.trim(),
+        monto: guardarPrecio(montoDeItem(i), it.monto, suyo[i] ?? null),
+      }))
 
       // El total solo se conoce si todos los trabajos tienen precio.
       const precios = p.items.map((it) => it.monto)

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Duda } from '@/lib/dictado/formulario'
 
 /** "cliente, monto y método de pago" */
@@ -18,6 +19,14 @@ interface Props {
   supuestos: string[]
   onElegir: (campo: string, valor: string) => void
   onRevisado: () => void
+  /**
+   * El segundo filtro: si se pasa, la franja deja escribir el arreglo («eran
+   * 280 y dejó 100 en yape») y el intérprete vuelve a pasar con lo entendido
+   * delante. Sin esto (o sin intérprete inteligente), se corrige a mano.
+   */
+  onArreglar?: (escrito: string) => void | Promise<void>
+  /** true mientras el intérprete está aplicando el arreglo. */
+  arreglando?: boolean
 }
 
 /**
@@ -25,8 +34,27 @@ interface Props {
  * esté bien: dice qué rellenó la máquina, qué no dijo la frase y, cuando hay
  * dos lecturas, pregunta cuál.
  */
-export function AvisoDictado({ origen, aviso, marcados, dudas, faltantes, supuestos, onElegir, onRevisado }: Props) {
+export function AvisoDictado({
+  origen,
+  aviso,
+  marcados,
+  dudas,
+  faltantes,
+  supuestos,
+  onElegir,
+  onRevisado,
+  onArreglar,
+  arreglando = false,
+}: Props) {
+  const [escrito, setEscrito] = useState('')
   if (!marcados && !dudas.length && !faltantes.length) return null
+
+  const enviar = () => {
+    const texto = escrito.trim()
+    if (!texto || arreglando) return
+    setEscrito('')
+    void onArreglar?.(texto)
+  }
 
   return (
     <div
@@ -80,6 +108,42 @@ export function AvisoDictado({ origen, aviso, marcados, dudas, faltantes, supues
         <p className="font-medium">
           <span className="font-bold">Supuse</span> {listar(supuestos)}: cámbialo si no es así.
         </p>
+      )}
+
+      {onArreglar && (
+        <div className="border-t border-amber-300/70 pt-2 dark:border-amber-500/30">
+          <label className="block font-bold text-amber-900 dark:text-amber-200" htmlFor="arreglo-dictado">
+            ¿Entendió mal? Dile qué arreglar
+          </label>
+          <div className="mt-1 flex gap-1.5">
+            <input
+              id="arreglo-dictado"
+              value={escrito}
+              onChange={(e) => setEscrito(e.target.value)}
+              // Enter aquí no envía el formulario: solo manda el arreglo.
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                enviar()
+              }}
+              disabled={arreglando}
+              maxLength={300}
+              placeholder="Ej.: eran 280 y dejó 100 en yape"
+              className="min-w-0 flex-1 rounded-lg border border-amber-400 bg-white px-2 py-1 text-[11px] font-medium text-slate-800 outline-none placeholder:font-normal placeholder:text-slate-400 focus:border-amber-500 disabled:opacity-60 dark:border-amber-500/50 dark:bg-slate-900 dark:text-slate-100"
+            />
+            <button
+              type="button"
+              onClick={enviar}
+              disabled={arreglando || !escrito.trim()}
+              className="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 text-[11px] font-bold text-white transition-colors hover:bg-amber-700 disabled:opacity-50 dark:bg-amber-500/80 dark:hover:bg-amber-500"
+            >
+              {arreglando ? 'Arreglando…' : 'Arreglar'}
+            </button>
+          </div>
+          <p className="mt-1 text-[10px] font-medium opacity-80">
+            Lo lee el intérprete con lo que ya entendió: solo cambia lo que le digas. Tú confirmas igual antes de guardar.
+          </p>
+        </div>
       )}
     </div>
   )

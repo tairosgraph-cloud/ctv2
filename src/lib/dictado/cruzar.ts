@@ -9,11 +9,11 @@
  * se ofrecen todas. Si el modelo dejó ese hueco sin opciones, se le ponen las
  * de las reglas, que ahorran teclear.
  *
- * Solo se comparan campos con la misma forma (una línea contra una línea); si
- * el modelo partió el trabajo en varias líneas y las reglas no, no hay nada
- * que cruzar.
+ * Las líneas se comparan una a una, en su orden, y solo si las dos lecturas
+ * partieron la frase en el mismo número de trabajos: si el modelo vio dos
+ * líneas y las reglas una, no hay parejas que comparar.
  */
-import { rutaDe, type Ambiguedad, type Extraccion } from '../../../supabase/functions/_shared/dictado/tipos.ts'
+import { montoDeItem, rutaDe, type Ambiguedad, type Extraccion } from '../../../supabase/functions/_shared/dictado/tipos.ts'
 
 interface Importe {
   campo: string
@@ -22,23 +22,33 @@ interface Importe {
   anular: (ex: Extraccion) => void
 }
 
-/** Los importes que las dos lecturas pueden tener en común. */
-const IMPORTES: Importe[] = [
-  {
-    campo: 'items.0.monto',
-    leer: (ex) => (ex.pedido?.items.length === 1 ? ex.pedido.items[0].monto : undefined),
-    anular: (ex) => void (ex.pedido!.items[0].monto = null),
-  },
-  {
-    campo: 'adelanto',
-    leer: (ex) =>
-      ex.pedido?.items.length === 1 && ex.pedido.adelanto.tipo === 'parcial' ? ex.pedido.adelanto.monto : undefined,
-    anular: (ex) => void (ex.pedido!.adelanto.monto = null),
-  },
-  { campo: 'total', leer: (ex) => ex.proforma?.total, anular: (ex) => void (ex.proforma!.total = null) },
-  { campo: 'monto', leer: (ex) => ex.abono?.monto, anular: (ex) => void (ex.abono!.monto = null) },
-  { campo: 'total', leer: (ex) => ex.deuda?.total, anular: (ex) => void (ex.deuda!.total = null) },
-]
+/**
+ * Los importes que las dos lecturas pueden tener en común. Las líneas se
+ * comparan una a una, y solo si las dos lecturas partieron la frase en el
+ * mismo número de trabajos: si una vio dos líneas y la otra una, no hay
+ * pareja que comparar.
+ */
+function importesComunes(lineas: number): Importe[] {
+  const deLineas: Importe[] = []
+  for (let i = 0; i < lineas; i++) {
+    deLineas.push({
+      campo: montoDeItem(i),
+      leer: (ex) => ex.pedido?.items[i]?.monto,
+      anular: (ex) => void (ex.pedido!.items[i].monto = null),
+    })
+  }
+  return [
+    ...deLineas,
+    {
+      campo: 'adelanto',
+      leer: (ex) => (ex.pedido?.adelanto.tipo === 'parcial' ? ex.pedido.adelanto.monto : undefined),
+      anular: (ex) => void (ex.pedido!.adelanto.monto = null),
+    },
+    { campo: 'total', leer: (ex) => ex.proforma?.total, anular: (ex) => void (ex.proforma!.total = null) },
+    { campo: 'monto', leer: (ex) => ex.abono?.monto, anular: (ex) => void (ex.abono!.monto = null) },
+    { campo: 'total', leer: (ex) => ex.deuda?.total, anular: (ex) => void (ex.deuda!.total = null) },
+  ]
+}
 
 const esCifra = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 /** Sin repetidas (al céntimo) y de menor a mayor. */
@@ -49,8 +59,11 @@ export function cruzarConReglas(modelo: Extraccion, reglas: Extraccion): Extracc
 
   const ex: Extraccion = structuredClone(modelo)
   const nuevas: Ambiguedad[] = []
+  const lineasModelo = modelo.pedido?.items.length ?? 0
+  const lineasReglas = reglas.pedido?.items.length ?? 0
+  const lineas = lineasModelo > 0 && lineasModelo === lineasReglas ? lineasModelo : 0
 
-  for (const { campo, leer, anular } of IMPORTES) {
+  for (const { campo, leer, anular } of importesComunes(lineas)) {
     const delModelo = leer(ex)
     const deReglas = leer(reglas)
     if (delModelo === undefined || deReglas === undefined) continue

@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useRecognizer, useSpeaker } from '@/hooks/useSpeech'
 import { useToast } from '@/hooks/useToast'
 import { buildDebtBriefing } from '@/lib/debtAlerts'
-import { comprobarInterprete, extraerDictado, type ResultadoDictado } from '@/lib/extractor'
+import { comprobarInterprete, corregirDictado, extraerDictado, type ResultadoDictado } from '@/lib/extractor'
 import { useData } from '@/store/DataProvider'
 import type { ConfirmacionDictado } from '@/types'
 import { rutaDe } from '../../supabase/functions/_shared/dictado/tipos.ts'
@@ -18,6 +18,8 @@ export interface Borrador {
   resultado: ResultadoDictado
   /** El id en voice_extractions; llega después y puede no llegar nunca. */
   auditoria: Promise<string | null>
+  /** Lo que se escribió para arreglarlo, si este borrador es un arreglo. */
+  arreglo?: string
 }
 
 export type EstadoDictado = 'inactivo' | 'escuchando' | 'extrayendo'
@@ -29,6 +31,14 @@ interface DictadoApi {
   alternar: () => void
   /** Interpreta una frase ya transcrita (el micrófono de un formulario). */
   interpretar: (texto: string) => Promise<Borrador>
+  /**
+   * El segundo filtro: lo escrito para arreglar un borrador vuelve al
+   * intérprete con el borrador delante. Nunca lanza ni empeora el borrador; si
+   * no se pudo, vuelve el mismo con su aviso.
+   */
+  arreglar: (borrador: Borrador, escrito: string) => Promise<Borrador>
+  /** Cambia el borrador que espera formulario (el arreglo de uno abierto). */
+  reemplazar: (borrador: Borrador) => void
   /** Lo que espera formulario; null si no hay nada pendiente. */
   borrador: Borrador | null
   /** Se cerró el formulario sin guardar. */
@@ -58,27 +68,55 @@ export function DictadoProvider({ children }: { children: ReactNode }) {
     if (conSesion) void comprobarInterprete()
   }, [conSesion])
 
+  /**
+   * Deja constancia del dictado. Nunca frena nada: va aparte y, si falla, se
+   * pierde la medición, no el registro.
+   */
+  const anotar = useCallback(
+    (texto: string, resultado: ResultadoDictado, arreglo?: { escrito: string; corrige: Promise<string | null> }) =>
+      (arreglo ? arreglo.corrige : Promise.resolve(null))
+        .then((corrige) =>
+          db.registrarDictado({
+            transcripcion: texto,
+            extraccion: resultado.extraccion,
+            intent: resultado.extraccion.intent,
+            origen: resultado.extraccion.origen,
+            modelo: resultado.modelo,
+            aviso: resultado.aviso,
+            ms: resultado.ms,
+            uso: resultado.uso,
+            arreglo: arreglo?.escrito ?? null,
+            corrige,
+          }),
+        )
+        .catch(() => null),
+    [],
+  )
+
   const interpretar = useCallback(
     async (texto: string): Promise<Borrador> => {
       const resultado = await extraerDictado(texto, conSesion)
-      const { extraccion } = resultado
-      // La auditoría nunca frena el dictado: va aparte y, si falla, se pierde
-      // la medición, no el registro.
-      const auditoria = db
-        .registrarDictado({
-          transcripcion: texto,
-          extraccion,
-          intent: extraccion.intent,
-          origen: extraccion.origen,
-          modelo: resultado.modelo,
-          aviso: resultado.aviso,
-          ms: resultado.ms,
-          uso: resultado.uso,
-        })
-        .catch(() => null)
-      return { id: siguienteId++, texto, resultado, auditoria }
+      return { id: siguienteId++, texto, resultado, auditoria: anotar(texto, resultado) }
     },
-    [conSesion],
+    [anotar, conSesion],
+  )
+
+  const arreglar = useCallback(
+    async (borrador: Borrador, escrito: string): Promise<Borrador> => {
+      const resultado = await corregirDictado(borrador.resultado.extraccion, borrador.texto, escrito, conSesion)
+      // Si no cambió nada (no se pudo), no se anota otra fila: no hubo arreglo.
+      if (resultado.extraccion === borrador.resultado.extraccion) {
+        return { ...borrador, resultado, arreglo: escrito }
+      }
+      return {
+        id: siguienteId++,
+        texto: borrador.texto,
+        resultado,
+        arreglo: escrito,
+        auditoria: anotar(borrador.texto, resultado, { escrito, corrige: borrador.auditoria }),
+      }
+    },
+    [anotar, conSesion],
   )
 
   const alRecibir = useCallback(
@@ -117,6 +155,7 @@ export function DictadoProvider({ children }: { children: ReactNode }) {
   })
 
   const descartar = useCallback(() => setBorrador(null), [])
+  const reemplazar = useCallback((nuevo: Borrador) => setBorrador(nuevo), [])
 
   const confirmar = useCallback((b: Borrador, confirmacion: ConfirmacionDictado) => {
     void b.auditoria
@@ -142,11 +181,13 @@ export function DictadoProvider({ children }: { children: ReactNode }) {
         toggle()
       },
       interpretar,
+      arreglar,
+      reemplazar,
       borrador,
       descartar,
       confirmar,
     }),
-    [estado, supported, extrayendo, loading, listening, toast, toggle, interpretar, borrador, descartar, confirmar],
+    [estado, supported, extrayendo, loading, listening, toast, toggle, interpretar, arreglar, reemplazar, borrador, descartar, confirmar],
   )
 
   return <DictadoContext.Provider value={valor}>{children}</DictadoContext.Provider>

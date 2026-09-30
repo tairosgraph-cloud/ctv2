@@ -3,6 +3,7 @@ import { AvisoDictado } from '@/components/dictado/AvisoDictado'
 import { Modal } from '@/components/ui/Modal'
 import { useCamposDictados } from '@/hooks/useCamposDictados'
 import { useDictado, type Borrador } from '@/hooks/useDictado'
+import { useArreglo } from '@/hooks/useArreglo'
 import { usePartes } from '@/hooks/usePartes'
 import { useToast } from '@/hooks/useToast'
 import { formularioDeDeuda, type Duda } from '@/lib/dictado/formulario'
@@ -36,6 +37,7 @@ function prepararDictado(dictado: Borrador | null, partes: ReturnType<typeof use
 export function NewDebtModal({ open, onClose, editing = null, dictado = null }: Props) {
   const { addDebt, editDebt, clientes } = useData()
   const { confirmar } = useDictado()
+  const arreglo = useArreglo(dictado)
   const partes = usePartes()
   const toast = useToast()
   const [arranque] = useState(() => (editing ? null : prepararDictado(dictado, partes)))
@@ -124,6 +126,8 @@ export function NewDebtModal({ open, onClose, editing = null, dictado = null }: 
       <form onSubmit={submit} className="space-y-3">
         {dictado && arranque && (
           <AvisoDictado
+            onArreglar={arreglo.pedir}
+            arreglando={arreglo.arreglando}
             origen={dictado.resultado.extraccion.origen}
             aviso={dictado.resultado.aviso}
             marcados={campos.marcados.size}

@@ -11,6 +11,7 @@
  */
 import { tieneForma } from '../../../supabase/functions/_shared/dictado/peticion.ts'
 import type { Extraccion } from '../../../supabase/functions/_shared/dictado/tipos.ts'
+import { fusionarCorreccion, problemasDe } from './corregir'
 import { cruzarConReglas } from './cruzar'
 import { desdeReglas } from './reglas'
 import { validarExtraccion } from './validar'
@@ -21,8 +22,15 @@ export const LIMITE_MS = 6_000
 export { hoyEnLima } from '../../../supabase/functions/_shared/dictado/fechas.ts'
 import { hoyEnLima } from '../../../supabase/functions/_shared/dictado/fechas.ts'
 
+/** El cuerpo que recibe la función: la frase y, si se pide un arreglo, el suyo. */
+export interface CuerpoDictado {
+  texto: string
+  hoy: string
+  arreglo?: { texto: string; borrador: unknown; problemas: string[] }
+}
+
 export type Invocar = (
-  cuerpo: { texto: string; hoy: string },
+  cuerpo: CuerpoDictado,
   signal: AbortSignal,
 ) => Promise<{ data: unknown; error: unknown; /** Estado HTTP de la respuesta, si lo hubo. */ estado?: number }>
 
@@ -118,6 +126,78 @@ export async function extraerCon(
     }
   } catch {
     return reglas(control.signal.aborted ? TARDO : NO_RESPONDIO)
+  } finally {
+    clearTimeout(plazo)
+  }
+}
+
+/** Lo que se dice cuando el arreglo no se pudo aplicar: el borrador sigue igual. */
+const SIN_ARREGLO = 'No pude aplicar tu arreglo; corrígelo a mano en el formulario.'
+const SIN_INTERPRETE = 'Para arreglar por escrito hace falta el intérprete inteligente; corrígelo a mano.'
+
+/**
+ * El segundo filtro: el borrador, más lo que una persona escribió para
+ * arreglarlo, vuelven al modelo y la respuesta se fusiona con el borrador.
+ *
+ * Nunca deja a quien registra peor que antes: ante cualquier fallo devuelve el
+ * borrador intacto con el aviso. Las reglas no pueden hacer este trabajo (leer
+ * un arreglo exige entender a qué campo se refiere), así que sin modelo se
+ * avisa y se corrige a mano, que es lo que el formulario ya permite.
+ */
+export async function corregirCon(
+  borrador: Extraccion,
+  dictado: string,
+  arreglo: string,
+  invocar: Invocar | null,
+  limiteMs = LIMITE_MS,
+): Promise<ResultadoDictado> {
+  const inicio = performance.now()
+  const ms = () => Math.round(performance.now() - inicio)
+  const sinCambios = (aviso: string): ResultadoDictado => ({ extraccion: borrador, ms: ms(), aviso, modelo: null, uso: null })
+
+  const escrito = arreglo.trim()
+  if (!escrito) return sinCambios(SIN_ARREGLO)
+  if (!invocar) return sinCambios(SIN_INTERPRETE)
+
+  const control = new AbortController()
+  let plazo: ReturnType<typeof setTimeout> | undefined
+  const vencido = new Promise<'vencido'>((resolver) => {
+    plazo = setTimeout(() => {
+      control.abort()
+      resolver('vencido')
+    }, limiteMs)
+  })
+  try {
+    const { origen: _origen, esquema: _esquema, ...paraElModelo } = borrador
+    const peticion = invocar(
+      {
+        texto: dictado,
+        hoy: hoyEnLima(),
+        arreglo: { texto: escrito, borrador: paraElModelo, problemas: problemasDe(borrador) },
+      },
+      control.signal,
+    )
+    const respuesta = await Promise.race([peticion, vencido])
+    if (respuesta === 'vencido') return sinCambios(TARDO)
+    const datos = respuesta.data
+    if (respuesta.error) return sinCambios(POR_ESTADO[respuesta.estado ?? 0] ?? SIN_ARREGLO)
+    if (!esObjeto(datos) || !tieneForma(datos.extraccion)) return sinCambios(SIN_ARREGLO)
+
+    const delModelo: Extraccion = { ...datos.extraccion, origen: 'llm', esquema: 1 }
+    const { extraccion } = fusionarCorreccion(borrador, delModelo)
+    // Las cifras se buscan en el dictado y en el arreglo: las del arreglo las
+    // escribió una persona, así que cuentan como dichas. Sin partir por
+    // trabajos, porque los trozos de dos textos pegados no se corresponden con
+    // las líneas.
+    return {
+      extraccion: validarExtraccion(extraccion, `${dictado}. ${escrito}`, hoyEnLima(), false),
+      ms: ms(),
+      aviso: null,
+      modelo: typeof datos.modelo === 'string' ? datos.modelo : null,
+      uso: leerUso(datos.uso),
+    }
+  } catch {
+    return sinCambios(control.signal.aborted ? TARDO : SIN_ARREGLO)
   } finally {
     clearTimeout(plazo)
   }

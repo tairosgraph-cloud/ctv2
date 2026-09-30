@@ -10,8 +10,9 @@
  * modelo.
  */
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
-import { extraerCon, type Invocar, type ResultadoDictado } from '@/lib/dictado/extraer'
+import { corregirCon, extraerCon, type Invocar, type ResultadoDictado } from '@/lib/dictado/extraer'
 import { interpreteActivado } from '@/lib/dictado/preferencia'
+import type { Extraccion } from '../../supabase/functions/_shared/dictado/tipos.ts'
 
 export type { ResultadoDictado }
 
@@ -76,7 +77,23 @@ export function comprobarInterprete(): Promise<EstadoInterprete> {
   return sonda.resultado
 }
 
+const conModelo = async (conSesion: boolean) =>
+  conSesion && interpreteActivado() && (await comprobarInterprete()) === 'disponible' ? invocarFuncion : null
+
 export async function extraerDictado(texto: string, conSesion: boolean): Promise<ResultadoDictado> {
-  const usarModelo = conSesion && interpreteActivado() && (await comprobarInterprete()) === 'disponible'
-  return extraerCon(texto, usarModelo ? invocarFuncion : null)
+  return extraerCon(texto, await conModelo(conSesion))
+}
+
+/**
+ * El arreglo escrito sobre un borrador ya interpretado. Sin modelo no hay
+ * arreglo posible (las reglas no saben a qué campo se refiere lo escrito): se
+ * devuelve el borrador con el aviso y la persona lo corrige a mano.
+ */
+export async function corregirDictado(
+  borrador: Extraccion,
+  dictado: string,
+  arreglo: string,
+  conSesion: boolean,
+): Promise<ResultadoDictado> {
+  return corregirCon(borrador, dictado, arreglo, await conModelo(conSesion))
 }

@@ -12,10 +12,12 @@ import { answerQuestion } from '@/components/gateway/knowledge'
 import type { CashClosing, Debt, Producto, Proforma, Transaction, WorkOrder } from '@/types'
 import { readFileSync } from 'node:fs'
 import { desdeReglas } from '@/lib/dictado/reglas'
+import { fusionarCorreccion, problemasDe } from '@/lib/dictado/corregir'
+import { alinear, segmentar } from '@/lib/dictado/segmentar'
 import { validarExtraccion } from '@/lib/dictado/validar'
 import { leerCorpus, puntuarFrase, resumir } from '@/lib/dictado/puntuar'
 import { cruzarConReglas } from '@/lib/dictado/cruzar'
-import { extraerCon, hoyEnLima, type Invocar } from '@/lib/dictado/extraer'
+import { corregirCon, extraerCon, hoyEnLima, type Invocar } from '@/lib/dictado/extraer'
 import { destinoDelAbono, formularioDeAbono, formularioDeDeuda, formularioDePedido, formularioDeProforma } from '@/lib/dictado/formulario'
 import { buscarParte, catalogoDePartes, normalizar } from '@/lib/partes'
 import { construirPeticion, leerRespuesta, tieneForma } from '../supabase/functions/_shared/dictado/peticion.ts'
@@ -184,10 +186,20 @@ async function main() {
   check('reglas: «adelanto de sueldo» es un gasto pagado', [reglas('adelanto de sueldo a kevin 200 en efectivo').intent, reglas('adelanto de sueldo a kevin 200 en efectivo').pedido?.adelanto.tipo], ['egreso', 'total'])
   check('reglas: «2 millares a 180» ofrece 180 o 360', reglas('dos millares de volantes a 180 para jhonatan en efectivo').ambiguedades,
     [{ campo: 'items.0.monto', opciones: ['180', '360'] }])
-  check('reglas: dos trabajos con su precio no se juntan en uno',
-    [reglas('cobré 95 por el empastado y 15 por el anillado cliente Mario yape').pedido?.items[0].monto,
-      reglas('cobré 95 por el empastado y 15 por el anillado cliente Mario yape').ambiguedades],
-    [null, [{ campo: 'items.0.monto', opciones: ['15', '95', '110'] }]])
+  const dosConPrecio = reglas('cobré 95 por el empastado y 15 por el anillado cliente Mario yape')
+  check('reglas: dos trabajos con su precio son dos líneas, cada una con el suyo', dosConPrecio.pedido?.items, [
+    { descripcion: 'el empastado', monto: 95 },
+    { descripcion: 'el anillado', monto: 15 },
+  ])
+  check('reglas: y el pago completo es la suma de las dos', dosConPrecio.pedido?.adelanto, { tipo: 'total', monto: 110 })
+  check('reglas: un solo precio para dos cosas sigue siendo una línea',
+    reglas('ingreso de 60 soles por fotocopias y anillado efectivo').pedido?.items.length, 1)
+  const precioRepetido = reglas('mil volantes y quinientas tarjetas para Rosa, 240 los volantes y 150 las tarjetas, adelanto 100 en yape')
+  check('reglas: el precio dicho después se junta con su trabajo', precioRepetido.pedido?.items, [
+    { descripcion: 'mil volantes', monto: 240 },
+    { descripcion: 'quinientas tarjetas para Rosa', monto: 150 },
+  ])
+  check('reglas: y el adelanto no se cuela como precio de una línea', precioRepetido.pedido?.adelanto, { tipo: 'parcial', monto: 100 })
   check('reglas: una medida no es otro precio', reglas('vendí una gigantografía de 2 por 1 a doña Pilar por 120 soles con plin').pedido?.items[0].monto, 120)
   check('reglas: ni el celular', reglas('cliente Carlos 987 654 321 quinientas tarjetas por 150 soles dejó 50 a cuenta en efectivo').pedido?.items[0].monto, 150)
   check('reglas: ni el precio por unidad', reglas('3 sellos automáticos a 35 soles cada uno cliente Núñez, adelanto 50 soles efectivo').pedido?.items[0].monto, 105)
@@ -199,6 +211,25 @@ async function main() {
   check('voz: «dieciocho soles»', montoDictado('gasté dieciocho soles en pasajes'), 18)
   check('reglas: una pregunta es una consulta', reglas('cuánto vendí hoy').intent, 'consulta')
   check('reglas: una muletilla no toca nada', reglas('eh este un momento').intent, 'desconocido')
+
+  // --- dictado: partir la frase en sus trabajos -----------------------------
+  const trozosDe = (frase: string) => {
+    const s = segmentar(frase)
+    return s.varios ? s.lineas.map((l) => l.texto) : null
+  }
+  const dosPrecios = '500 tarjetas a 85 y mil volantes a 240 para Rosa en yape'
+  check('segmentar: dos trabajos con su precio se parten', trozosDe('500 tarjetas a 85 y mil volantes a 240'),
+    ['500 tarjetas a 85', 'mil volantes a 240'])
+  check('segmentar: un precio para dos cosas no se parte', trozosDe('60 soles por fotocopias y anillado'), null)
+  check('segmentar: «cincuenta y dos» no es un corte', trozosDe('volantes por cincuenta y dos soles'), null)
+  check('segmentar: un trabajo sin precio no es otra línea', segmentar('mil volantes a 240 y el diseño').varios, false)
+  check('segmentar: el adelanto y el pago no son un trabajo',
+    segmentar('500 tarjetas a 85 y mil volantes a 240, dejó 100 en efectivo').comun, 'dejó 100 en efectivo')
+  check('alinear: empareja por las palabras, no por el orden',
+    alinear(['mil volantes', '500 tarjetas'], segmentar(dosPrecios).lineas),
+    ['mil volantes a 240 para Rosa en yape', '500 tarjetas a 85'])
+  check('alinear: si el intérprete partió de otra forma, no se empareja nada',
+    alinear(['todo el pedido'], segmentar(dosPrecios).lineas), [null])
 
   // --- dictado: el validador ------------------------------------------------
   const extraccion = (over: Partial<Extraccion>): Extraccion => ({
@@ -230,6 +261,26 @@ async function main() {
       extraccion({ intent: 'proforma', proforma: { cliente: 'María', detalle: 'tarjetas y afiches', total: 350, vigenciaDias: 15 } })).proforma?.total, 350)
   check('validar: un egreso no puede traer kind Ingreso',
     guardada('pagué 80 soles de papel en efectivo', extraccion({ intent: 'egreso', pedido: { ...pedidoDictado(80, { tipo: 'total', monto: 80 }), kind: 'Ingreso' } })).pedido?.kind, null)
+  const dosLineasDe = (a: number | null, b: number | null) =>
+    extraccion({
+      intent: 'ingreso',
+      pedido: {
+        ...pedidoDictado(null, { tipo: 'total', monto: null }),
+        items: [
+          { descripcion: '500 tarjetas', monto: a },
+          { descripcion: 'mil volantes', monto: b },
+        ],
+      },
+    })
+  check('validar: cada precio en su trabajo pasa',
+    guardada(dosPrecios, dosLineasDe(85, 240)).pedido?.items.map((i) => i.monto), [85, 240])
+  const mezclados = guardada(dosPrecios, dosLineasDe(240, 85))
+  check('validar: el precio del otro trabajo no pasa, aunque esté dicho en la frase',
+    mezclados.pedido?.items.map((i) => i.monto), [null, null])
+  check('validar: y cada línea ofrece las cifras dichas', mezclados.ambiguedades, [
+    { campo: 'items.0.monto', opciones: ['85', '240'] },
+    { campo: 'items.1.monto', opciones: ['85', '240'] },
+  ])
   const intacta = extraccion({ pedido: pedidoDictado(500, { tipo: 'total', monto: 500 }) })
   const antesDeValidar = JSON.stringify(intacta)
   validarExtraccion(intacta, 'volantes por 240 soles')
@@ -294,6 +345,23 @@ async function main() {
   const dosLineas = delModelo(240)
   dosLineas.pedido!.items.push({ descripcion: 'afiches', monto: 150 })
   check('cruzar: una línea contra dos no se compara', cruzarConReglas(dosLineas, deReglas(390)), dosLineas)
+  const dosDe = (a: number | null, b: number | null, origen: 'llm' | 'reglas' = 'llm') =>
+    extraccion({
+      intent: 'ingreso',
+      origen,
+      pedido: {
+        ...pedidoDictado(null, { tipo: 'total', monto: null }),
+        items: [
+          { descripcion: 'tarjetas', monto: a },
+          { descripcion: 'volantes', monto: b },
+        ],
+      },
+    })
+  const porLinea = cruzarConReglas(dosDe(85, 240), dosDe(85, 180, 'reglas'))
+  check('cruzar: con dos líneas se compara línea por línea',
+    porLinea.pedido?.items.map((i) => i.monto), [85, null])
+  check('cruzar: y solo la que discrepa ofrece las dos lecturas',
+    porLinea.ambiguedades, [{ campo: 'items.1.monto', opciones: ['180', '240'] }])
   const original = delModelo(240)
   const copia = JSON.stringify(original)
   cruzarConReglas(original, deReglas(180))
@@ -326,6 +394,71 @@ async function main() {
   check('extraer: lo del modelo también pasa por la guarda',
     (await extraerCon(venta, responde({ extraccion: delModelo(999) }))).extraccion.pedido?.items[0].monto, null)
   check('extraer: a las 22:00 de Lima sigue siendo hoy en Lima', hoyEnLima(new Date('2026-09-19T03:00:00Z')), '2026-09-18')
+
+  // --- dictado: el arreglo escrito (segundo filtro) --------------------------
+  const dictadoJulio = 'gigantografía para don julio 250 soles'
+  const borradorJulio = extraccion({
+    intent: 'pedido',
+    pedido: {
+      kind: 'Ingreso', parte: 'Julio', telefono: null, categoria: null, pago: null,
+      items: [{ descripcion: 'gigantografía', monto: 250 }],
+      adelanto: { tipo: null, monto: null }, notas: null, entrega: null,
+    },
+    faltantes: ['cobro', 'pago'],
+  })
+  const corregidoJulio = (over: Partial<NonNullable<Extraccion['pedido']>> = {}) =>
+    extraccion({
+      intent: 'pedido',
+      pedido: {
+        kind: null, parte: null, telefono: null, categoria: null, pago: 'Yape/Plin',
+        items: [{ descripcion: '', monto: 280 }],
+        adelanto: { tipo: 'parcial', monto: 100 }, notas: null, entrega: null,
+        ...over,
+      },
+    })
+  const fusionJulio = fusionarCorreccion(borradorJulio, corregidoJulio())
+  check('arreglo: lo que no nombra se conserva',
+    [fusionJulio.extraccion.pedido?.parte, fusionJulio.extraccion.pedido?.kind, fusionJulio.extraccion.pedido?.items[0].descripcion],
+    ['Julio', 'Ingreso', 'gigantografía'])
+  check('arreglo: lo que nombra manda',
+    [fusionJulio.extraccion.pedido?.items[0].monto, fusionJulio.extraccion.pedido?.adelanto, fusionJulio.extraccion.pedido?.pago],
+    [280, { tipo: 'parcial', monto: 100 }, 'Yape/Plin'])
+  check('arreglo: dice qué cambió', fusionJulio.cambios, ['pago', 'items.0.monto', 'cobro', 'adelanto'])
+  check('arreglo: sin líneas devueltas quedan las del borrador',
+    fusionarCorreccion(borradorJulio, corregidoJulio({ items: [] })).extraccion.pedido?.items, [{ descripcion: 'gigantografía', monto: 250 }])
+  const cambiaDeRuta = extraccion({ intent: 'proforma', proforma: { cliente: 'Julio', detalle: 'gigantografía', total: 250, vigenciaDias: 15 } })
+  check('arreglo: si cambia de tipo, manda el bloque nuevo',
+    [fusionarCorreccion(borradorJulio, cambiaDeRuta).extraccion.intent, fusionarCorreccion(borradorJulio, cambiaDeRuta).cambios], ['proforma', ['todo']])
+  check('arreglo: los problemas van con nombre de campo',
+    problemasDe(extraccion({ faltantes: ['pago'], ambiguedades: [{ campo: 'items.0.monto', opciones: ['180', '360'] }] })),
+    ['items.0.monto: ¿180 o 360?', 'pago: no se dijo'])
+
+  const pedirArreglo = (invocar: Invocar | null, limite?: number) =>
+    corregirCon(borradorJulio, dictadoJulio, 'eran 280 y dejó 100 en yape', invocar, limite)
+  const sinInterprete = await pedirArreglo(null)
+  check('arreglo: sin intérprete inteligente el borrador no se toca',
+    [sinInterprete.extraccion === borradorJulio, sinInterprete.aviso],
+    [true, 'Para arreglar por escrito hace falta el intérprete inteligente; corrígelo a mano.'])
+  const falla = await pedirArreglo(responde(null, new Error('500')))
+  check('arreglo: si el intérprete falla, el borrador no se toca',
+    [falla.extraccion === borradorJulio, falla.aviso],
+    [true, 'No pude aplicar tu arreglo; corrígelo a mano en el formulario.'])
+  const aplicado = await pedirArreglo(responde({ extraccion: corregidoJulio(), modelo: 'claude-opus-5' }))
+  check('arreglo: la cifra que escribió la persona cuenta como dicha',
+    [aplicado.extraccion.pedido?.items[0].monto, aplicado.extraccion.pedido?.adelanto.monto, aplicado.extraccion.faltantes],
+    [280, 100, []])
+  const inventado = await pedirArreglo(responde({ extraccion: corregidoJulio({ items: [{ descripcion: 'gigantografía', monto: 999 }] }) }))
+  check('arreglo: una cifra que nadie escribió tampoco pasa', inventado.extraccion.pedido?.items[0].monto, null)
+  let cuerpoArreglo: unknown = null
+  await corregirCon(borradorJulio, dictadoJulio, 'eran 280', async (cuerpo) => {
+    cuerpoArreglo = cuerpo
+    return { data: { extraccion: corregidoJulio() }, error: null }
+  })
+  check('arreglo: manda el borrador y lo que la guarda vio mal', [
+    (cuerpoArreglo as { texto: string }).texto,
+    (cuerpoArreglo as { arreglo: { texto: string } }).arreglo.texto,
+    (cuerpoArreglo as { arreglo: { problemas: string[] } }).arreglo.problemas,
+  ], [dictadoJulio, 'eran 280', ['cobro: no se dijo', 'pago: no se dijo']])
 
   // --- dictado: emparejar el nombre con los que ya existen ------------------
   const catalogo = catalogoDePartes([
@@ -429,7 +562,7 @@ async function main() {
   check('corpus: las reglas no afirman nada falso', medida.afirmacionesFalsas, 0)
   check('corpus: ninguna cifra fuera de la frase', medida.cifrasFuera, 0)
   check('corpus: nada esperado quedó sin avisar', medida.sinDeclarar, 0)
-  check('corpus: frases aceptables no bajan de 81', medida.aceptables >= 81, true)
+  check('corpus: frases aceptables no bajan de 82', medida.aceptables >= 82, true)
 
   // --- montos --------------------------------------------------------------
   check('monto: 1.234,50', parseAmount('1.234,50'), 1234.5)

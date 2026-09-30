@@ -24,7 +24,28 @@ function diaDeLaSemana(hoy: string): string {
   return DIAS[new Date(Date.UTC(a, m - 1, d)).getUTCDay()]
 }
 
-export function construirPeticion(dictado: string, hoy: string, esfuerzo: Esfuerzo = 'low') {
+/**
+ * El segundo filtro: lo que ya se entendió más lo que una persona escribió para
+ * arreglarlo. Va en el mensaje, nunca en el sistema (rompería la caché).
+ */
+export interface Arreglo {
+  /** Lo que escribió quien registra: «el total era 550, pagó con yape». */
+  texto: string
+  /** El borrador que hay que arreglar, tal como se le mostró. */
+  borrador: unknown
+  /** Lo que la guarda vio mal, en nombres de campo. Puede ir vacío. */
+  problemas?: readonly string[]
+}
+
+/** Hasta aquí se cuenta el borrador en el mensaje: más que esto no es un dictado. */
+const MAX_BORRADOR = 4_000
+
+export function construirPeticion(
+  dictado: string,
+  hoy: string,
+  esfuerzo: Esfuerzo = 'low',
+  arreglo: Arreglo | null = null,
+) {
   return {
     model: MODELO,
     max_tokens: 4096,
@@ -43,7 +64,17 @@ export function construirPeticion(dictado: string, hoy: string, esfuerzo: Esfuer
       {
         role: 'user' as const,
         // La fecha va aquí y no en el sistema: allí rompería la caché.
-        content: `Hoy es ${hoy} (${diaDeLaSemana(hoy)}).\nDictado: «${dictado}»`,
+        content: [
+          `Hoy es ${hoy} (${diaDeLaSemana(hoy)}).`,
+          `Dictado: «${dictado}»`,
+          ...(arreglo
+            ? [
+                `Entendí: ${JSON.stringify(arreglo.borrador).slice(0, MAX_BORRADOR)}`,
+                `Arreglo: «${arreglo.texto}»`,
+                ...(arreglo.problemas?.length ? [`Revisar: ${arreglo.problemas.join(', ')}`] : []),
+              ]
+            : []),
+        ].join('\n'),
       },
     ],
     output_config: {

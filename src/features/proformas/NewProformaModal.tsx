@@ -4,6 +4,7 @@ import { AvisoDictado } from '@/components/dictado/AvisoDictado'
 import { Modal } from '@/components/ui/Modal'
 import { useCamposDictados } from '@/hooks/useCamposDictados'
 import { useDictado, type Borrador } from '@/hooks/useDictado'
+import { useArreglo } from '@/hooks/useArreglo'
 import { usePartes } from '@/hooks/usePartes'
 import { useToast } from '@/hooks/useToast'
 import { formularioDeProforma, type Duda } from '@/lib/dictado/formulario'
@@ -44,6 +45,7 @@ export function NewProformaModal({ open, onClose, editing = null, dictado = null
   const { addProforma, editProforma, clientes, productos } = useData()
   const [delCatalogo, setDelCatalogo] = useState(false)
   const { confirmar } = useDictado()
+  const arreglo = useArreglo(dictado)
   const partes = usePartes()
   const toast = useToast()
   const [arranque] = useState(() => (editing ? null : prepararDictado(dictado, partes)))
@@ -135,6 +137,8 @@ export function NewProformaModal({ open, onClose, editing = null, dictado = null
       <form onSubmit={submit} className="space-y-3">
         {dictado && arranque && (
           <AvisoDictado
+            onArreglar={arreglo.pedir}
+            arreglando={arreglo.arreglando}
             origen={dictado.resultado.extraccion.origen}
             aviso={dictado.resultado.aviso}
             marcados={campos.marcados.size}

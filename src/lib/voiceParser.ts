@@ -405,6 +405,49 @@ const PARTIR_TRAMOS = /\s*(?:[,;:]|\.(?=\s|$))\s*/u
 const PALABRA_DE_TRABAJO =
   /(?<![\p{L}])(?:volante|afiche|banner|folleto|tarjeta|impres|gigantograf|vinil|millar|dise[ñn]o|logo|anillado|empastado|sticker|talonario|sello|certificad|taza|carta|invitaci|agenda|calendario|plano|llavero|gorra|polo|banderol|tr[ií]ptic|d[ií]ptic|etiqueta|bolsa|fotocopia|copia|papel|cartulina|tinta|t[oó]ner|lona|resma|plancha|mantenimiento|alquiler|luz|agua|internet|sueldo|movilidad|pasaje)/iu
 
+/**
+ * ¿El trozo nombra un trabajo o un gasto del oficio? Lo usa la segmentación
+ * (src/lib/dictado/segmentar.ts) para saber qué trozo abre otra línea.
+ */
+export const hayPalabraDeTrabajo = (texto: string) => PALABRA_DE_TRABAJO.test(texto)
+
+/** El método de pago dicho sin preposición al final: «el anillado yape». */
+const METODO_AL_FINAL = /\s+(?:yape|plin|efectivo|transferencia|dep[oó]sito)$/iu
+/**
+ * «a 85», «por 240»: el precio ya tiene su campo. La cifra de delante no puede
+ * ser otra cifra, o «gigantografía de 2 por 1» perdería la medida.
+ */
+const PRECIO_PEGADO = /(?<!\d)\s+(?:a|por|en)\s+(?:s\/\.?\s*)?\d[\d.,]*(?![\d.,\p{L}])/giu
+/** «240 los volantes», «95 por el empastado»: el precio delante del trabajo. */
+const PRECIO_ANTES_DEL_TRABAJO =
+  /^(?:s\/\.?\s*)?\d[\d.,]*\s+(?:por\s+|de\s+|a\s+)?(?=(?:el|la|los|las|un|una)\s)/iu
+
+/**
+ * La descripción de un trabajo, sin lo que ya tiene su propio campo: el verbo
+ * («vendí»), el importe, la forma de cobro, el método y el nombre de la parte
+ * cuando se dijo con su palabra («cliente Mario»). Lo usa la segmentación, que
+ * saca la descripción de un trozo de la frase y no de la frase entera, así que
+ * no pasa por la limpieza de `deducirConcepto`.
+ */
+export function soloElTrabajo(texto: string): string {
+  const limpio = texto
+    .replace(NOMBRE, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(VERBO_INICIAL, '')
+    .replace(IMPORTE_INICIAL, '')
+    .replace(PRECIO_ANTES_DEL_TRABAJO, '')
+    .replace(IMPORTE_FINAL, '')
+    .replace(FORMA_DE_COBRO, '')
+    .replace(COLA_DE_PAGO, '')
+    .replace(METODO_AL_FINAL, '')
+    .replace(PRECIO_PEGADO, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  // Si la limpieza se lo lleva todo, vale más lo dicho que un hueco.
+  return limpio || texto.trim()
+}
+
 const NUMEROS_SIN_UNO = Object.keys(NUMBER_WORDS)
   .filter((w) => w !== 'un' && w !== 'uno' && w !== 'una')
   .join('|')

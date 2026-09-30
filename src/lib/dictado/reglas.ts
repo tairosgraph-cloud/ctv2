@@ -13,18 +13,22 @@ import {
   colectivoAmbiguo,
   hayPrecioUnitario,
   parseVoiceEntry,
+  soloElTrabajo,
   tipoExplicito,
 } from '@/lib/voiceParser'
 import {
   CAMPOS,
   CATEGORIAS,
   montoDeItem,
+  type Ambiguedad,
   type Categoria,
   type Cobro,
   type Extraccion,
   type Intencion,
+  type ItemDictado,
   type Vigencia,
 } from '../../../supabase/functions/_shared/dictado/tipos.ts'
+import { segmentar } from './segmentar'
 import { normalizarDictado, palabra } from '../../../supabase/functions/_shared/dictado/vocabulario.ts'
 import { fechaDeEntrega, hoyEnLima } from '../../../supabase/functions/_shared/dictado/fechas.ts'
 
@@ -167,6 +171,16 @@ function vacia(intent: Intencion): Extraccion {
   }
 }
 
+/** Escapa lo que pueda tener un nombre para meterlo en un patrón. */
+const escapar = (texto: string) => texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** «quinientas tarjetas para Rosa» → «quinientas tarjetas»: quién ya tiene campo. */
+function sinLaParte(descripcion: string, parte: string | null): string {
+  if (!parte?.trim()) return descripcion
+  const patron = new RegExp(`(?:\\s+(?:para|de|del|al?)\\s+(?:el\\s+|la\\s+|los\\s+|las\\s+)?)?${escapar(parte.trim())}(?![\\p{L}])`, 'iu')
+  return descripcion.replace(patron, '').replace(/\s+/g, ' ').trim() || descripcion
+}
+
 export function desdeReglas(texto: string, hoy: string = hoyEnLima()): Extraccion {
   const limpio = normalizarDictado(texto)
   const p = parseVoiceEntry(limpio)
@@ -233,6 +247,8 @@ export function desdeReglas(texto: string, hoy: string = hoyEnLima()): Extraccio
   let precio = p.amount
   let adelanto: Cobro
   let cobroSupuesto = false
+  /** La frase de la que salen los precios: la de los trabajos, sin el adelanto. */
+  let textoTrabajos = limpio
 
   if (PISTA_CREDITO.test(limpio)) {
     adelanto = { tipo: 'credito', monto: 0 }
@@ -242,8 +258,8 @@ export function desdeReglas(texto: string, hoy: string = hoyEnLima()): Extraccio
     if (m && cifra) {
       // El precio se busca en el resto de la frase, sin la cifra del adelanto.
       const inicio = m.index ?? 0
-      const resto = `${limpio.slice(0, inicio)} ${limpio.slice(inicio + m[0].length)}`
-      precio = parseVoiceEntry(resto).amount
+      textoTrabajos = `${limpio.slice(0, inicio)} ${limpio.slice(inicio + m[0].length)}`
+      precio = parseVoiceEntry(textoTrabajos).amount
       adelanto = { tipo: 'parcial', monto: valorDe(cifra) }
     } else {
       adelanto = { tipo: 'parcial', monto: null }
@@ -259,17 +275,59 @@ export function desdeReglas(texto: string, hoy: string = hoyEnLima()): Extraccio
     cobroSupuesto = tipo === null
   }
 
-  // Dos trabajos con su precio cada uno no caben en una línea: quedarse con uno
-  // registraría de menos. Se ofrecen los precios dichos y su suma.
-  let opcionesVarios: string[] | null = null
-  if (precio !== null) {
-    const otros = otrosPrecios(limpio, precio, adelanto.tipo === 'parcial' ? adelanto.monto : null)
-    if (otros.length) {
-      const todos = [precio, ...otros]
-      const suma = Math.round(todos.reduce((a, b) => a + b, 0) * 100) / 100
-      opcionesVarios = [...new Set([...todos, suma])].sort((a, b) => a - b).map(String)
-      precio = null
+  /** Los precios que la frase dice de una línea, y su suma, de menor a mayor. */
+  const lecturas = (cifras: number[]): string[] => {
+    const suma = Math.round(cifras.reduce((a, b) => a + b, 0) * 100) / 100
+    return [...new Set([...cifras, suma])].sort((a, b) => a - b).map(String)
+  }
+
+  const items: ItemDictado[] = []
+  const dudasDeMonto: Ambiguedad[] = []
+  const segmentos = segmentar(textoTrabajos)
+
+  if (segmentos.varios) {
+    // Varios trabajos en una frase: una línea por trabajo, y el precio de cada
+    // uno buscado solo dentro de su trozo. Antes se devolvía un hueco con
+    // todos los precios como opciones, y quedarse con uno registraba de menos.
+    segmentos.lineas.forEach((linea, i) => {
+      const suyo = parseVoiceEntry(linea.texto)
+      // La descripción sale del trozo que nombra el trabajo («mil volantes»),
+      // no del que repite su precio («240 los volantes»), y sin lo que ya tiene
+      // su campo: el precio, el método y quién lo encarga.
+      const descripcion = sinLaParte(soloElTrabajo(linea.nombra), p.party)
+      const dos = colectivoAmbiguo(linea.texto)
+      const otros = suyo.amount !== null ? otrosPrecios(linea.texto, suyo.amount, null) : []
+      // «2 millares a 180» admite 180 o 360, y nada más: la suma no viene al caso.
+      const opciones = dos
+        ? [dos.precio, Math.round(dos.precio * dos.cantidad * 100) / 100].map(String)
+        : otros.length && suyo.amount !== null
+          ? lecturas([suyo.amount, ...otros])
+          : null
+      const monto = opciones ? null : suyo.amount
+      items.push({ descripcion, monto })
+      if (opciones) dudasDeMonto.push({ campo: montoDeItem(i), opciones })
+      else if (monto === null) falta(montoDeItem(i))
+    })
+    // Con varias líneas el total lo suma el validador; aquí solo se sabe si
+    // todas tienen precio, que es lo que hace falta para el pago completo.
+    precio = items.every((it) => it.monto !== null)
+      ? Math.round(items.reduce((s, it) => s + (it.monto ?? 0), 0) * 100) / 100
+      : null
+  } else {
+    // Un solo trabajo: si aun así la frase dice más de un precio, ninguno es
+    // suyo con seguridad. Se ofrecen los dichos y su suma.
+    let opcionesVarios: string[] | null = null
+    if (precio !== null) {
+      const otros = otrosPrecios(limpio, precio, adelanto.tipo === 'parcial' ? adelanto.monto : null)
+      if (otros.length) {
+        opcionesVarios = lecturas([precio, ...otros])
+        precio = null
+      }
     }
+    items.push({ descripcion: p.concept, monto: precio })
+    if (opcionesColectivo && precio === null) dudasDeMonto.push({ campo: montoDeItem(0), opciones: opcionesColectivo })
+    else if (opcionesVarios) dudasDeMonto.push({ campo: montoDeItem(0), opciones: opcionesVarios })
+    else if (precio === null) falta(montoDeItem(0))
   }
 
   const kind = tipo ?? (intent === 'egreso' ? 'Egreso' : 'Ingreso')
@@ -281,7 +339,7 @@ export function desdeReglas(texto: string, hoy: string = hoyEnLima()): Extraccio
     telefono: limpio.match(CELULAR)?.[0].replace(/\D/g, '') ?? null,
     categoria: esCategoria(categoriaDelRegistro) ? categoriaDelRegistro : kind === 'Ingreso' ? 'Ventas' : 'Otros',
     pago: p.payment,
-    items: [{ descripcion: p.concept, monto: precio }],
+    items,
     adelanto: adelanto.tipo === 'total' ? { tipo: 'total', monto: precio } : adelanto,
     notas: null,
     entrega: fechaDeEntrega(limpio, hoy),
@@ -292,9 +350,7 @@ export function desdeReglas(texto: string, hoy: string = hoyEnLima()): Extraccio
   if (cobroSupuesto) r.supuestos.push(CAMPOS.cobro)
 
   if (!p.party) falta(CAMPOS.parte)
-  if (opcionesColectivo && precio === null) r.ambiguedades.push({ campo: montoDeItem(0), opciones: opcionesColectivo })
-  else if (opcionesVarios) r.ambiguedades.push({ campo: montoDeItem(0), opciones: opcionesVarios })
-  else if (precio === null) falta(montoDeItem(0))
+  r.ambiguedades.push(...dudasDeMonto)
   if (!p.payment && adelanto.tipo !== 'credito') falta(CAMPOS.pago)
   if (adelanto.tipo === 'parcial' && adelanto.monto === null) falta(CAMPOS.adelanto)
 
