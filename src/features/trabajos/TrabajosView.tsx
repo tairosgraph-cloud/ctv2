@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { db } from '@/data'
+import { usePermisos } from '@/hooks/usePermisos'
 import { useToast } from '@/hooks/useToast'
 import { money, shortDateTime } from '@/lib/format'
 import { armarTablero, EN_EL_TALLER, siguienteEstado, textoPlazo, type Plazo, type TrabajoEnTablero } from '@/lib/trabajos'
@@ -39,6 +40,7 @@ const fechaCorta = (iso: string) =>
  */
 export function TrabajosView({ search }: { search: string }) {
   const { workOrders, debts, loading, avanzarTrabajo, fijarEntrega } = useData()
+  const { puedeRegistrar } = usePermisos()
   const toast = useToast()
   const [filtro, setFiltro] = useState<Filtro>('todos')
   const [entregando, setEntregando] = useState<{ t: TrabajoEnTablero; nota: string } | null>(null)
@@ -142,7 +144,7 @@ export function TrabajosView({ search }: { search: string }) {
                 </h3>
                 <ul className="space-y-2">
                   {trabajos.map((t) => (
-                    <Tarjeta key={t.pedido.id} t={t} onMover={mover} onFecha={cambiarFecha} />
+                    <Tarjeta key={t.pedido.id} t={t} editable={puedeRegistrar} onMover={mover} onFecha={cambiarFecha} />
                   ))}
                 </ul>
               </section>
@@ -197,9 +199,12 @@ export function TrabajosView({ search }: { search: string }) {
 function Tarjeta({
   t,
   onMover,
+  editable,
   onFecha,
 }: {
   t: TrabajoEnTablero
+  /** false en una cuenta que solo consulta: la base rechaza sus escrituras. */
+  editable: boolean
   onMover: (t: TrabajoEnTablero, estado: EstadoTrabajo) => void
   onFecha: (t: TrabajoEnTablero, fecha: string) => void
 }) {
@@ -246,6 +251,7 @@ function Tarjeta({
           type="date"
           value={pedido.entrega ?? ''}
           onChange={(e) => onFecha(t, e.target.value)}
+          disabled={!editable}
           className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[11px] font-semibold text-slate-700 hover:border-slate-200 focus:border-brand-400 dark:text-slate-200 dark:hover:border-slate-700"
           aria-label={`Fecha de entrega de ${pedido.party}`}
         />
@@ -277,17 +283,20 @@ function Tarjeta({
               <i className="fa-brands fa-whatsapp" aria-hidden="true" />
               Avisar
             </a>
-            <button
-              type="button"
-              onClick={() => onMover(t, 'entregado')}
-              className="inline-flex items-center gap-1 rounded-lg bg-brand-800 px-2 py-1 text-[11px] font-bold text-white transition-colors hover:bg-brand-900 dark:bg-brand-600"
-            >
-              <i className="fa-solid fa-hand-holding" aria-hidden="true" />
-              Entregar
-            </button>
+            {editable && (
+              <button
+                type="button"
+                onClick={() => onMover(t, 'entregado')}
+                className="inline-flex items-center gap-1 rounded-lg bg-brand-800 px-2 py-1 text-[11px] font-bold text-white transition-colors hover:bg-brand-900 dark:bg-brand-600"
+              >
+                <i className="fa-solid fa-hand-holding" aria-hidden="true" />
+                Entregar
+              </button>
+            )}
           </>
         ) : (
-          siguiente && (
+          siguiente &&
+          editable && (
             <button
               type="button"
               onClick={() => onMover(t, siguiente)}
@@ -298,19 +307,21 @@ function Tarjeta({
             </button>
           )
         )}
-        <select
-          value=""
-          onChange={(e) => e.target.value && onMover(t, e.target.value as EstadoTrabajo)}
-          aria-label={`Mover el trabajo de ${pedido.party}`}
-          className="rounded-lg border border-slate-200 bg-white px-1 py-1 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
-        >
-          <option value="">Mover a…</option>
-          {ESTADOS_TRABAJO.filter((e) => e !== pedido.estado).map((e) => (
-            <option key={e} value={e}>
-              {NOMBRE_ESTADO[e]}
-            </option>
-          ))}
-        </select>
+        {editable && (
+          <select
+            value=""
+            onChange={(e) => e.target.value && onMover(t, e.target.value as EstadoTrabajo)}
+            aria-label={`Mover el trabajo de ${pedido.party}`}
+            className="rounded-lg border border-slate-200 bg-white px-1 py-1 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+          >
+            <option value="">Mover a…</option>
+            {ESTADOS_TRABAJO.filter((e) => e !== pedido.estado).map((e) => (
+              <option key={e} value={e}>
+                {NOMBRE_ESTADO[e]}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           type="button"
           onClick={() => setVerHistorial((v) => !v)}
